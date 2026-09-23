@@ -8,9 +8,12 @@ The database JSON shapes stop here; workflow code only sees
 - ``enabled_tools`` must be tools from the fixed registry
 - event types must belong to the frozen vocabulary (``EVENT_TYPES``)
 
-Step 6 (FastAPI) is the caller when it starts a workflow for a run.
+``validate_supervisor_config`` is the single validator: the API uses it when a
+supervisor is created (Step 6) and ``build_workflow_input`` uses it when a run's
+workflow is started, so both apply exactly the same rules.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List
 
@@ -78,29 +81,68 @@ def run_instructions(stored: Any) -> List[RunInstruction]:
     return result
 
 
+@dataclass
+class ValidatedSupervisorConfig:
+    important_event_types: List[str]
+    enabled_tools: List[str]
+    terminal_order_statuses: List[str]
+    order_status_by_event: Dict[str, str]
+    default_wake_interval: int
+    min_wake_interval: int
+    max_wake_interval: int
+
+
+def validate_supervisor_config(
+    *,
+    wake_policy: Any,
+    enabled_tools: Any,
+    terminal_order_statuses: Any,
+    order_status_by_event: Any,
+    default_wake_interval: Any,
+    min_wake_interval: Any,
+    max_wake_interval: Any,
+) -> ValidatedSupervisorConfig:
+    """Validate a supervisor configuration; raise SupervisorConfigError if invalid."""
+    intervals = (min_wake_interval, default_wake_interval, max_wake_interval)
+    if not all(isinstance(v, int) and not isinstance(v, bool) for v in intervals):
+        raise SupervisorConfigError("wake intervals must be integers")
+    if not (0 < min_wake_interval <= default_wake_interval <= max_wake_interval):
+        raise SupervisorConfigError("wake intervals must satisfy 0 < min <= default <= max")
+    return ValidatedSupervisorConfig(
+        important_event_types=important_event_types_from_wake_policy(wake_policy),
+        enabled_tools=enabled_tool_names(enabled_tools),
+        terminal_order_statuses=_string_list(terminal_order_statuses, "terminal_order_statuses"),
+        order_status_by_event=order_status_mapping(order_status_by_event),
+        default_wake_interval=default_wake_interval,
+        min_wake_interval=min_wake_interval,
+        max_wake_interval=max_wake_interval,
+    )
+
+
 def build_workflow_input(supervisor: "Supervisor", run: "Run") -> OrderWorkflowInput:
     if run.id is None:
         raise SupervisorConfigError("run must be persisted (have an id) before its workflow starts")
-    minimum, default, maximum = (
-        supervisor.min_wake_interval,
-        supervisor.default_wake_interval,
-        supervisor.max_wake_interval,
+    config = validate_supervisor_config(
+        wake_policy=supervisor.wake_policy,
+        enabled_tools=supervisor.enabled_tools,
+        terminal_order_statuses=supervisor.terminal_order_statuses,
+        order_status_by_event=supervisor.order_status_by_event,
+        default_wake_interval=supervisor.default_wake_interval,
+        min_wake_interval=supervisor.min_wake_interval,
+        max_wake_interval=supervisor.max_wake_interval,
     )
-    if not (0 < minimum <= default <= maximum):
-        raise SupervisorConfigError("wake intervals must satisfy 0 < min <= default <= max")
-
     return OrderWorkflowInput(
         order_id=run.order_id,
         order_status=run.order_status,
-        important_event_types=important_event_types_from_wake_policy(supervisor.wake_policy),
-        terminal_order_statuses=_string_list(supervisor.terminal_order_statuses, "terminal_order_statuses"),
-        order_status_by_event=order_status_mapping(supervisor.order_status_by_event),
-        default_wake_interval_minutes=default,
-        min_wake_interval_minutes=minimum,
-        max_wake_interval_minutes=maximum,
+        important_event_types=config.important_event_types,
+        terminal_order_statuses=config.terminal_order_statuses,
+        order_status_by_event=config.order_status_by_event,
+        default_wake_interval_minutes=config.default_wake_interval,
+        min_wake_interval_minutes=config.min_wake_interval,
+        max_wake_interval_minutes=config.max_wake_interval,
         run_id=str(run.id),
         supervisor_instructions=supervisor.instructions,
-        enabled_tools=enabled_tool_names(supervisor.enabled_tools),
+        enabled_tools=config.enabled_tools,
         supervisor_version=supervisor.version,
         run_instructions=run_instructions(run.run_instructions),
     )
