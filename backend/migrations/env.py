@@ -21,8 +21,11 @@ if config.config_file_name is not None:
 from app.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db import models  # noqa: E402,F401
+from app.db.mock_models import MockBase  # noqa: E402
 
-target_metadata = Base.metadata
+# Supervisor/history tables and the Step 5 mock operational tables use
+# separate declarative bases; autogenerate must see both.
+target_metadata = [Base.metadata, MockBase.metadata]
 
 # Single source of truth for the DB URL: app.config (env vars / .env),
 # not a value duplicated into alembic.ini.

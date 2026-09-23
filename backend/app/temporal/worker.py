@@ -23,6 +23,7 @@ from app.temporal.activities.reasoning import ReasoningActivities
 from app.temporal.activities.tools import ToolActivities
 from app.temporal.constants import TASK_QUEUE
 from app.temporal.workflows import OrderWorkflow
+from app.tools.mock_operations import build_mock_tool_handlers
 from app.tools.registry import ToolHandler
 
 
@@ -34,7 +35,10 @@ def build_activities(
 ) -> List[Callable[..., Any]]:
     persistence = PersistenceActivities(session_factory)
     reasoning = ReasoningActivities(llm_client)
-    tools = ToolActivities(tool_registry)
+    # Step 5: by default the tools act on the PostgreSQL mock operational state.
+    tools = ToolActivities(
+        tool_registry if tool_registry is not None else build_mock_tool_handlers(session_factory)
+    )
     return [
         persistence.record_event,
         persistence.record_timeline_entries,
