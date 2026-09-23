@@ -4,6 +4,8 @@ uvicorn[standard]>=0.23.0,<1.0.0
 
 # Centralized Configuration
 pydantic-settings>=2.0.0,<3.0.0
+# Imported directly by app/llm/schemas.py (structured LLM output validation)
+pydantic>=2,<3
 
 # Database (PostgreSQL / Supabase) — async SQLAlchemy 2.0 + Alembic migrations
 sqlalchemy>=2.0.0,<3.0.0

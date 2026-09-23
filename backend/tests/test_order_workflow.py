@@ -1,4 +1,4 @@
-"""Temporal workflow tests for OrderWorkflow (Step 3 foundation).
+"""Temporal workflow lifecycle tests for OrderWorkflow (written in Step 3; still valid in Step 4).
 
 These run the real workflow on Temporal's time-skipping test server, so
 scheduled wake-ups are exercised with real Temporal timers but without
@@ -24,6 +24,7 @@ from app.temporal.types import (
 )
 from app.temporal.worker import create_worker
 from app.temporal.workflows import OrderWorkflow
+from tests.fakes import InMemoryPersistence, fake_activities
 
 pytestmark = pytest.mark.asyncio
 
@@ -32,8 +33,11 @@ ORDER_ID = "12345"
 
 @pytest_asyncio.fixture
 async def env():
+    # Step 4: the workflow now calls Activities, so the worker registers them.
+    # Persistence is in-memory and the LLM is FakeLLMClient (a no-tool decision
+    # by default), so these Step 3 lifecycle tests are unchanged in substance.
     async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with create_worker(env.client):
+        async with create_worker(env.client, activities=fake_activities(InMemoryPersistence())):
             yield env
 
 
@@ -276,8 +280,8 @@ async def test_terminate_works_while_paused(env):
 async def test_terminal_order_status_stops_workflow_at_terminal_seam(env):
     """Step 3: terminal status detected -> workflow stops at the terminal seam.
 
-    NOT tested (not implemented yet): final-output Activity, persisting final
-    output, marking the run completed. Those are a later step.
+    Step 4 added final output after the seam; it is tested in
+    test_workflow_activities.py (final output, fallback, complete_run).
     """
     handle = await start_and_settle(env, order_status_by_event={"delivered": "delivered"})
 

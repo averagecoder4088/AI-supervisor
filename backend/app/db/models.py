@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -51,11 +51,17 @@ class Supervisor(Base):
 
     # Order statuses that end supervision, e.g. ["delivered"].
     terminal_order_statuses: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Configured event_type -> order_status updates, e.g. {"delivered": "delivered"}.
+    # Versioned with the supervisor; no mapping is built into the code (Step 4, B3).
+    order_status_by_event: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
 
     version: Mapped[int] = mapped_column(nullable=False, default=1)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
@@ -78,10 +84,15 @@ class Run(Base):
     status: Mapped[str] = mapped_column(nullable=False, default="active")
     # Business order status, e.g. "shipment_delayed". Distinct from `status` above.
     order_status: Mapped[Optional[str]] = mapped_column(nullable=True)
+    # Run-specific human instructions, e.g. [{"text": "...", "added_at": "..."}].
+    # A property of the run, not timeline history (Step 4, B2).
+    run_instructions: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
 
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
-    started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     supervisor: Mapped["Supervisor"] = relationship(back_populates="runs")
     events: Mapped[list["Event"]] = relationship(back_populates="run", cascade="all, delete-orphan")
@@ -109,8 +120,8 @@ class Event(Base):
     event_type: Mapped[str] = mapped_column(nullable=False, index=True)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
-    occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
-    received_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     run: Mapped["Run"] = relationship(back_populates="events")
 
@@ -128,7 +139,7 @@ class TimelineEntry(Base):
     entry_type: Mapped[str] = mapped_column(nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     run: Mapped["Run"] = relationship(back_populates="timeline_entries")
 
@@ -147,8 +158,8 @@ class Action(Base):
     status: Mapped[str] = mapped_column(nullable=False, default="pending")
     reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     run: Mapped["Run"] = relationship(back_populates="actions")
     tool_executions: Mapped[list["ToolExecution"]] = relationship(
@@ -168,9 +179,16 @@ class ToolExecution(Base):
     tool_name: Mapped[str] = mapped_column(nullable=False)
     # "pending" | "success" | "failed" — application-constrained, not a DB enum.
     status: Mapped[str] = mapped_column(nullable=False, default="pending")
+    # Structured tool call record (Step 4, B4). The row id doubles as the
+    # tool's idempotency key.
+    input: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    result: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    started_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     action: Mapped["Action"] = relationship(back_populates="tool_executions")
 
@@ -186,7 +204,7 @@ class MemorySnapshot(Base):
     )
     memory: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     run: Mapped["Run"] = relationship(back_populates="memory_snapshots")
 
@@ -202,6 +220,6 @@ class FinalOutput(Base):
     )
     output: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     run: Mapped["Run"] = relationship(back_populates="final_output")

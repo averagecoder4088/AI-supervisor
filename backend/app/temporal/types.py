@@ -24,6 +24,7 @@ class WakeReason(str, Enum):
     IMPORTANT_EVENT = "important_event"
     SCHEDULED_WAKEUP = "scheduled_wakeup"
     RESUME = "resume"
+    INSTRUCTION_ADDED = "instruction_added"
 
 
 @dataclass
@@ -33,6 +34,14 @@ class OrderEvent:
     event_type: str
     payload: Dict[str, Any] = field(default_factory=dict)
     occurred_at: Optional[datetime] = None
+
+
+@dataclass
+class RunInstruction:
+    """A run-specific human instruction (stored on ``runs.run_instructions``)."""
+
+    text: str
+    added_at: Optional[datetime] = None
 
 
 @dataclass
@@ -46,15 +55,22 @@ class OrderWorkflowInput:
     # Order statuses that end supervision.
     terminal_order_statuses: List[str] = field(default_factory=lambda: ["delivered"])
     # Optional event_type -> order_status updates. Empty by default: the workflow
-    # assumes no business mapping. The real source of order status (tools /
-    # database) is decided in a later step.
+    # assumes no business mapping. Supplied from the versioned supervisor
+    # configuration (supervisors.order_status_by_event, Step 4 B3).
     order_status_by_event: Dict[str, str] = field(default_factory=dict)
-    # Scheduling. Step 3 only uses the default interval. Validation/bounding of
-    # LLM-requested wake intervals by min/max becomes active once the LLM
-    # requests intervals in a later step; until then min/max are carried, unused.
+    # Scheduling. LLM-requested wake intervals are clamped to [min, max];
+    # the default is used when the LLM requests none.
     default_wake_interval_minutes: int = 60
     min_wake_interval_minutes: int = 5
     max_wake_interval_minutes: int = 1440
+    # Step 4 (B1). Safe defaults keep Step 3 constructors valid. Without a
+    # run_id the real persistence Activities refuse to write (MissingRunId).
+    run_id: Optional[str] = None
+    supervisor_instructions: str = ""
+    # No tools unless the supervisor enables them.
+    enabled_tools: List[str] = field(default_factory=list)
+    supervisor_version: Optional[int] = None
+    run_instructions: List[RunInstruction] = field(default_factory=list)
 
 
 @dataclass
@@ -76,6 +92,14 @@ class OrderWorkflowStatus:
     pending_events: List[OrderEvent]
     # Bounded window of events already seen by a reasoning cycle.
     recent_events: List[OrderEvent]
-    # True once a configured terminal order status was detected. This does NOT
-    # mean final output exists: final-output generation is a later step.
+    # True once a configured terminal order status was detected. Final output
+    # exists only once final_output_persisted is also True.
     terminal_order_status_reached: bool = False
+    # Step 4 (B1).
+    memory: Dict[str, Any] = field(default_factory=dict)
+    # The last reasoning decision and the workflow's verdict on it.
+    last_decision: Optional[Dict[str, Any]] = None
+    # completed | llm_failed | interrupted | discarded_paused | discarded_terminal
+    last_cycle_outcome: Optional[str] = None
+    run_instructions: List[RunInstruction] = field(default_factory=list)
+    final_output_persisted: bool = False
