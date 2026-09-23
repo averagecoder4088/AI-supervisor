@@ -1,0 +1,20 @@
+# Core Framework & Server
+fastapi>=0.100.0,<1.0.0
+uvicorn[standard]>=0.23.0,<1.0.0
+
+# Centralized Configuration
+pydantic-settings>=2.0.0,<3.0.0
+
+# Database (PostgreSQL / Supabase) — async SQLAlchemy 2.0 + Alembic migrations
+sqlalchemy>=2.0.0,<3.0.0
+asyncpg>=0.29.0,<1.0.0
+greenlet>=3.0.0,<4.0.0
+alembic>=1.13.0,<2.0.0
+
+# Workflow orchestration — Temporal Python SDK
+temporalio>=1.8.0,<2.0.0
+
+# Testing (TestClient & test runner)
+pytest>=7.0.0,<9.0.0
+pytest-asyncio>=0.23.0,<1.0.0
+httpx>=0.24.0,<1.0.0
