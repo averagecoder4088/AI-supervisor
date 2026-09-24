@@ -70,7 +70,7 @@ def create_worker(
             session_factory = AsyncSessionLocal
         activities = build_activities(
             session_factory=session_factory,
-            llm_client=llm_client if llm_client is not None else OpenAILLMClient(),
+            llm_client=llm_client if llm_client is not None else OpenAILLMClient.from_settings(get_settings()),
             tool_registry=tool_registry,
         )
     return Worker(client, task_queue=TASK_QUEUE, workflows=[OrderWorkflow], activities=list(activities))

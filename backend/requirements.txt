@@ -16,6 +16,11 @@ alembic>=1.13.0,<2.0.0
 # Workflow orchestration — Temporal Python SDK
 temporalio>=1.8.0,<2.0.0
 
+# LLM provider — OpenAI Responses API (decision B7). The project stays on Python 3.9, and
+# 2.48.0 is the last release that supports it (pip picks it via Requires-Python).
+# Imported lazily by app/llm/client.py, so an unconfigured environment never loads it.
+openai>=2.0.0,<3.0.0
+
 # Testing (TestClient & test runner)
 pytest>=7.0.0,<9.0.0
 pytest-asyncio>=0.23.0,<1.0.0
