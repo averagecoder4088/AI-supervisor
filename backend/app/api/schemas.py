@@ -112,3 +112,76 @@ class Accepted(BaseModel):
     run_id: uuid.UUID
     request: str
     accepted: bool = True
+
+
+# ------------------------------------------------------------------ Step 7
+# Read-only observation responses. Fields mirror the existing models exactly.
+
+
+class _FromModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TimelineEntryOut(_FromModel):
+    id: uuid.UUID
+    run_id: uuid.UUID
+    entry_type: str
+    message: str
+    created_at: datetime
+
+
+class TimelineOut(BaseModel):
+    run_id: uuid.UUID
+    entries: List[TimelineEntryOut]
+
+
+class MemorySnapshotOut(_FromModel):
+    id: uuid.UUID
+    run_id: uuid.UUID
+    memory: Dict[str, Any]
+    created_at: datetime
+
+
+class MemoryOut(BaseModel):
+    run_id: uuid.UUID
+    snapshots: List[MemorySnapshotOut]
+
+
+class ActionOut(_FromModel):
+    id: uuid.UUID
+    run_id: uuid.UUID
+    action_type: str
+    status: str
+    reasoning: Optional[str]
+    created_at: datetime
+    completed_at: Optional[datetime]
+
+
+class ActionsOut(BaseModel):
+    run_id: uuid.UUID
+    actions: List[ActionOut]
+
+
+class ToolExecutionOut(_FromModel):
+    id: uuid.UUID
+    action_id: uuid.UUID
+    tool_name: str
+    status: str
+    input: Dict[str, Any]
+    result: Optional[Dict[str, Any]]
+    error: Optional[str]
+    started_at: datetime
+    completed_at: Optional[datetime]
+
+
+class ToolExecutionsOut(BaseModel):
+    run_id: uuid.UUID
+    tool_executions: List[ToolExecutionOut]
+
+
+class FinalOutputOut(BaseModel):
+    run_id: uuid.UUID
+    # The stored Step 4 structure: summary, key_actions, key_learnings,
+    # recommendations, source ("llm" | "fallback"). null until the run completes.
+    final_output: Optional[Dict[str, Any]]
+    created_at: Optional[datetime]
