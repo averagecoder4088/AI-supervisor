@@ -5,10 +5,11 @@ import { getRun, isActiveRun } from "@/api/runs";
 import { getSupervisor } from "@/api/supervisors";
 import type { Run, Supervisor } from "@/api/types";
 import { ErrorPanel } from "@/components/ErrorPanel";
-import { RefreshButton } from "@/components/RefreshButton";
+import { LiveRefresh } from "@/components/LiveRefresh";
 import { RunNotFound } from "@/components/RunNotFound";
 import { OrderStatus, StatusBadge } from "@/components/StatusBadge";
 import { formatTimestamp } from "@/format";
+import { POLL_INTERVAL_MS } from "@/polling";
 import { EventInjector } from "./EventInjector";
 import { HumanControls } from "./HumanControls";
 import { InstructionForm } from "./InstructionForm";
@@ -39,9 +40,13 @@ export default async function RunDetailPage({
     run = await getRun(runId);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return <RunNotFound />;
+    // Not proof of anything (the backend may just be down for a moment): keep retrying at the polling interval.
     return (
       <>
         <BackLink />
+        <div className="mb-4 flex items-center justify-end gap-3">
+          <LiveRefresh runActive workflowClosed={false} runStatus="unknown" retrying />
+        </div>
         <ErrorPanel title="Could not load this run" error={error} />
       </>
     );
@@ -110,7 +115,7 @@ export default async function RunDetailPage({
         <StatusBadge status={run.status} />
         <div className="ml-auto flex items-center gap-3 text-xs text-slate-500">
           <span>Loaded {formatTimestamp(loadedAt)}</span>
-          <RefreshButton />
+          <LiveRefresh key={run.id} runActive={isActiveRun(run)} workflowClosed={workflowView?.mode === "closed"} runStatus={run.status} />
         </div>
       </div>
       <nav aria-label="Sections" className="mb-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -211,8 +216,9 @@ export default async function RunDetailPage({
       </div>
 
       <p className="mt-6 text-sm text-slate-500">
-        This page shows what each source reported when it was loaded ({formatTimestamp(loadedAt)}). It does not update by
-        itself: use Refresh to read everything again.
+        This page shows what each source reported when it was loaded ({formatTimestamp(loadedAt)}). While the run is active
+        it refreshes itself every {POLL_INTERVAL_MS / 1000} s and it stops when the run ends; Refresh reads everything
+        again at once.
       </p>
     </>
   );

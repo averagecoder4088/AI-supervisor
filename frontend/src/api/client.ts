@@ -28,7 +28,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+async function request<T>(method: "GET" | "POST", path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const url = `${apiBaseUrl()}${path}`;
   let response: Response;
   try {
@@ -40,12 +40,12 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown):
         ...(body !== undefined ? { "content-type": "application/json" } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       throw new ApiError(
-        `The backend did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+        `The backend did not answer within ${timeoutMs / 1000} seconds.`,
         null,
         "BACKEND_TIMEOUT",
         url,
@@ -81,8 +81,9 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown):
   }
 }
 
-export function apiGet<T>(path: string): Promise<T> {
-  return request<T>("GET", path);
+/** GET. `timeoutMs` overrides the default 10 s for a read that must not hold a page render for long. */
+export function apiGet<T>(path: string, timeoutMs?: number): Promise<T> {
+  return request<T>("GET", path, undefined, timeoutMs);
 }
 
 /** POST a JSON body. Only ever called from Server Actions (never from the browser). */

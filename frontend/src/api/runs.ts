@@ -1,5 +1,6 @@
 import { apiGet, apiPost } from "./client";
 import type { Accepted, EventCreateBody, InstructionCreateBody, Run, RunCreateBody, WorkflowStatus } from "./types";
+import { STATUS_READ_TIMEOUT_MS } from "../polling";
 import type { ControlName } from "./vocabulary";
 
 // Mirrors the backend's ACTIVE_STATUSES (backend/app/api/runs.py); "active" is the legacy default.
@@ -44,10 +45,11 @@ export function addInstruction(runId: string, body: InstructionCreateBody): Prom
 
 /**
  * GET /api/runs/{run_id}/status: queries the running workflow. 409 RUN_NOT_ACTIVE when the workflow is
- * closed, 503 TEMPORAL_UNAVAILABLE when Temporal (or the worker) does not answer in time.
+ * closed, 503 TEMPORAL_UNAVAILABLE when Temporal (or the worker) does not answer in time. The read itself
+ * is bounded to STATUS_READ_TIMEOUT_MS (see polling.ts), so it can never hold a page render for long.
  */
 export function getRunStatus(runId: string): Promise<WorkflowStatus> {
-  return apiGet<WorkflowStatus>(`/api/runs/${encodeURIComponent(runId)}/status`);
+  return apiGet<WorkflowStatus>(`/api/runs/${encodeURIComponent(runId)}/status`, STATUS_READ_TIMEOUT_MS);
 }
 
 /**

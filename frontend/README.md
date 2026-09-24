@@ -32,7 +32,7 @@ browser never contacts the backend directly and no CORS setup is needed yet.
 |---|---|
 | `/` | Dashboard: active and completed runs |
 | `/supervisors` | Supervisors referenced by existing runs (read-only) |
-| `/runs/[runId]` | Run observation: overview, live **Workflow status**, **Memory**, **Timeline**, **Actions**, **Tool executions** and **Final output** (each loads on its own, so one failing source does not break the page; a **Refresh** button re-reads them, there is no polling). For an active run also **Human controls** (pause, resume, interrupt, terminate), an **Additional instructions** form and an **Inject an event** form |
+| `/runs/[runId]` | Run observation: overview, live **Workflow status**, **Memory**, **Timeline**, **Actions**, **Tool executions** and **Final output** (each loads on its own, so one failing source does not break the page; an active run's page refreshes itself every 3 s and stops when the run ends, and a **Refresh** button re-reads everything at once; no WebSocket or SSE). For an active run also **Human controls** (pause, resume, interrupt, terminate), an **Additional instructions** form and an **Inject an event** form |
 | `/supervisors/new` | Create a supervisor (tools, wake behaviour, terminal statuses, status mapping) |
 | `/runs/new` | Start a run: order ID, supervisor, run-specific instructions |
 
