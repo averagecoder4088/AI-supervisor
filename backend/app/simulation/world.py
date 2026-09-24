@@ -34,6 +34,18 @@ EVENT_ORDER_STATUS_WITH_DELAY: Dict[str, str] = {
     "shipment_delayed": SHIPMENT_DELAYED_ORDER_STATUS,
 }
 
+# The payment-failure / cancellation scenario (S5) adds two more events.
+PAYMENT_FAILED_ORDER_STATUS = "payment_failed"
+CANCELLED_ORDER_STATUS = "cancelled"
+EVENT_ORDER_STATUS_WITH_CANCELLATION: Dict[str, str] = {
+    **EVENT_ORDER_STATUS_WITH_DELAY,
+    "payment_failed": PAYMENT_FAILED_ORDER_STATUS,
+    "order_cancelled": CANCELLED_ORDER_STATUS,
+}
+
+# Cancellation is valid only before a shipment exists, from these order states.
+CANCELLABLE_ORDER_STATUSES = ("created", "payment_confirmed", "payment_failed")
+
 # Delivery is valid only from these states (a delayed shipment can still be delivered).
 DELIVERABLE_ORDER_STATUSES = ("shipped", "delayed")
 DELIVERABLE_SHIPMENT_STATUSES = ("created", "in_transit", "delayed")
@@ -133,6 +145,29 @@ class ExternalWorld:
                 order.status = EVENT_ORDER_STATUS["delivered"]
                 payload = {"shipment_id": shipment.shipment_id}
         await self._emit(run_id, "delivered", payload)
+
+    async def fail_payment(self, run_id: str, order_id: str, reason: str) -> None:
+        """The payment fails: the order goes created -> payment_failed. The reason travels in the event only."""
+        async with self._session_factory() as session:
+            async with session.begin():
+                order = await self._order(session, order_id, for_update=True)
+                self._require(order.status == "created", order, "fail the payment")
+                order.status = PAYMENT_FAILED_ORDER_STATUS
+        await self._emit(run_id, "payment_failed", {"reason": reason})
+
+    async def cancel_order(self, run_id: str, order_id: str, reason: str) -> None:
+        """The order is cancelled. Only before a shipment exists (shipment cancellation is not simulated)."""
+        async with self._session_factory() as session:
+            async with session.begin():
+                order = await self._order(session, order_id, for_update=True)
+                shipment = (
+                    await session.execute(select(MockShipment).where(MockShipment.order_id == order_id))
+                ).scalar_one_or_none()
+                if shipment is not None:
+                    raise InvalidTransition(f"cannot cancel: order {order_id!r} already has a shipment")
+                self._require(order.status in CANCELLABLE_ORDER_STATUSES, order, "cancel")
+                order.status = CANCELLED_ORDER_STATUS
+        await self._emit(run_id, "order_cancelled", {"reason": reason})
 
     # ---------------------------------------------------------------- helpers
 
