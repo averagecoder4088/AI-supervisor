@@ -14,7 +14,7 @@ const INFO: Record<ControlName, { label: string; pending: string; text: string }
   pause: {
     label: "Pause",
     pending: "Pausing…",
-    text: "Keep the workflow alive but stop supervisor reasoning. Events are still recorded; reasoning resumes only after Resume.",
+    text: "Keep the workflow alive but stop supervisor reasoning. Events are still recorded and can be evaluated after Resume.",
   },
   resume: {
     label: "Resume",
@@ -24,7 +24,7 @@ const INFO: Record<ControlName, { label: string; pending: string; text: string }
   interrupt: {
     label: "Interrupt",
     pending: "Interrupting…",
-    text: "Stop the current reasoning cycle without terminating the workflow. An in-flight LLM decision is discarded; a tool that already started finishes and is recorded.",
+    text: "Stop the current reasoning cycle without terminating the workflow. If an LLM decision is in flight, it is discarded; a tool that already started is allowed to finish and is recorded.",
   },
   terminate: {
     label: "Terminate",
@@ -33,10 +33,11 @@ const INFO: Record<ControlName, { label: string; pending: string; text: string }
   },
 };
 
-const OFFERED: Record<"running" | "paused" | "unknown", ControlName[]> = {
+const OFFERED: Record<"running" | "paused" | "unavailable", ControlName[]> = {
   running: ["pause", "interrupt", "terminate"],
   paused: ["resume", "interrupt", "terminate"],
-  unknown: ["pause", "resume", "interrupt", "terminate"],
+  // The state is not known, so which of Pause / Resume applies is not known either: show all four, disabled.
+  unavailable: ["pause", "resume", "interrupt", "terminate"],
 };
 
 const BUTTON = "rounded border px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50";
@@ -50,6 +51,7 @@ const DANGER = `${BUTTON} border-red-700 bg-red-700 text-white hover:bg-red-800`
  */
 export function HumanControls({ runId, mode, runStatus }: { runId: string; mode: ControlMode | "inactive"; runStatus: string }) {
   const [state, formAction] = useActionState<ControlFormState, FormData>(controlAction, IDLE);
+  const router = useRouter();
   // A fresh form per result, so the terminate confirmation closes and nothing stale is left in it.
   const formKey = state.status === "success" ? state.sentAt : state.status === "error" ? (state.at ?? "error") : "idle";
 
@@ -74,16 +76,18 @@ export function HumanControls({ runId, mode, runStatus }: { runId: string; mode:
           active run can be paused, resumed, interrupted or terminated.
         </p>
       )}
-      {mode === "unknown" && (
-        <p className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-900">
-          The workflow&apos;s current state could not be read (Temporal or the worker is not answering), so Pause and
-          Resume are both offered. Either one does nothing harmful when it does not apply.
+      {mode === "unavailable" && (
+        <p role="note" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-900">
+          Unable to determine the workflow state. Refresh and try again.{" "}
+          <button type="button" onClick={() => router.refresh()} className="text-blue-700 underline">
+            Refresh this page
+          </button>
         </p>
       )}
-      {(mode === "running" || mode === "paused" || mode === "unknown") && (
+      {(mode === "running" || mode === "paused" || mode === "unavailable") && (
         <form key={formKey} action={formAction}>
           <input type="hidden" name="run_id" value={runId} />
-          <Buttons offered={OFFERED[mode]} />
+          <Buttons offered={OFFERED[mode]} disabled={mode === "unavailable"} />
         </form>
       )}
     </div>
@@ -91,9 +95,10 @@ export function HumanControls({ runId, mode, runStatus }: { runId: string; mode:
 }
 
 /** The buttons. Must sit inside the form: useFormStatus tells which one was pressed and disables all of them. */
-function Buttons({ offered }: { offered: ControlName[] }) {
-  const { pending, data } = useFormStatus();
-  const pressed = pending ? String(data?.get("control") ?? "") : "";
+function Buttons({ offered, disabled }: { offered: ControlName[]; disabled: boolean }) {
+  const { pending: inFlight, data } = useFormStatus();
+  const pending = inFlight || disabled; // `disabled`: the workflow state is unknown, nothing may be sent
+  const pressed = inFlight ? String(data?.get("control") ?? "") : "";
   const [confirming, setConfirming] = useState(false);
 
   return (
@@ -164,7 +169,9 @@ function Outcome({ state }: { state: Extract<ControlFormState, { status: "succes
           <> The workflow reports its state as <span className="font-medium">{workflowState}</span>.</>
         )}
         {control === "interrupt" && interruptCount !== null && <> Interrupt count: {interruptCount}.</>}
-        {control === "interrupt" && <> The current reasoning cycle stops at its next checkpoint; the workflow stays alive.</>}
+        {control === "interrupt" && (
+          <> If a reasoning cycle was in progress, its LLM decision is discarded; a tool that had already started finishes and is recorded. The workflow stays alive.</>
+        )}
         {unread && <> The resulting state could not be read just now.</>}
         {(notYet || unread) && (
           <>

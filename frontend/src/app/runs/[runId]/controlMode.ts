@@ -9,10 +9,10 @@ import { getRunStatus } from "@/api/runs";
  * - paused:  a human pause is in effect      -> Resume, Interrupt, Terminate
  * - finishing: the order reached a terminal status and the workflow is completing -> no controls
  * - closed:  the workflow is no longer running (409)                              -> no controls
- * - unknown: the query failed (Temporal or the worker is not answering)           -> all four; pause and
- *            resume are idempotent in the workflow, so offering both is harmless
+ * - unavailable: the query failed (Temporal, the worker or the backend is not answering). The state is NOT
+ *            guessed: the controls are shown disabled, because Pause vs Resume cannot be chosen safely.
  */
-export type ControlMode = "running" | "paused" | "finishing" | "closed" | "unknown";
+export type ControlMode = "running" | "paused" | "finishing" | "closed" | "unavailable";
 
 export async function loadControlMode(runId: string): Promise<ControlMode> {
   try {
@@ -22,6 +22,6 @@ export async function loadControlMode(runId: string): Promise<ControlMode> {
     return "running";
   } catch (error) {
     if (error instanceof ApiError && error.status === 409) return "closed";
-    return "unknown";
+    return "unavailable";
   }
 }
