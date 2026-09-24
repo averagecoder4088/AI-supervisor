@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { ApiError } from "@/api/client";
-import { getRun } from "@/api/runs";
+import { getRun, isActiveRun } from "@/api/runs";
 import { getSupervisor } from "@/api/supervisors";
 import type { Run, Supervisor } from "@/api/types";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { RunNotFound } from "@/components/RunNotFound";
 import { OrderStatus, StatusBadge } from "@/components/StatusBadge";
 import { formatTimestamp } from "@/format";
+import { EventInjector } from "./EventInjector";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,17 @@ export default async function RunDetailPage({
           </ul>
         )}
       </section>
+
+      <div className="mt-6">
+        {isActiveRun(run) ? (
+          <EventInjector runId={run.id} workflowId={`order-${run.order_id}`} />
+        ) : (
+          <section className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-600">
+            <h2 className="mb-1 text-lg font-medium text-slate-900">Inject an event</h2>
+            This run is <span className="font-medium">{run.status}</span>. Events can only be injected into an active run.
+          </section>
+        )}
+      </div>
 
       <p className="mt-6 text-sm text-slate-500">
         Live status, timeline, memory, actions and final output are added in the next step.

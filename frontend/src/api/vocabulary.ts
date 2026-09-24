@@ -61,3 +61,20 @@ export const DEFAULT_STATUS_BY_EVENT: Record<string, string> = {
 
 export const DEFAULT_TERMINAL_STATUSES = "delivered, cancelled";
 export const DEFAULT_WAKE_MINUTES = { min: 1, default: 60, max: 1440 };
+
+/**
+ * Example payloads (the shapes the sealed simulator sends). The backend accepts any JSON object as
+ * the payload, so these are suggestions only and never required.
+ */
+export const EVENT_PAYLOAD_EXAMPLES: Record<string, string> = {
+  order_created: '{"customer_id": "CUST-1"}',
+  payment_confirmed: '{"amount": 49.99, "currency": "USD"}',
+  payment_failed: '{"reason": "card_declined"}',
+  shipment_created: '{"shipment_id": "SHIP-1", "tracking_number": "TRK-1"}',
+  shipment_delayed: '{"delay_reason": "Carrier capacity shortage"}',
+  delivered: '{"shipment_id": "SHIP-1"}',
+  refund_requested: '{"reason": "Changed mind"}',
+  customer_message_received: '{"message": "Where is my order?"}',
+  no_update_for_n_hours: '{"hours": 24}',
+  order_cancelled: '{"reason": "Customer request"}',
+};

@@ -1,7 +1,7 @@
 # Order Supervisor: frontend
 
 Next.js (App Router) + TypeScript + Tailwind CSS. A simple dashboard over the existing FastAPI backend.
-It can create supervisors and start runs; event injection, run instructions on live runs and run controls come later.
+It can create supervisors, start runs and inject events into an active run; run instructions on live runs and run controls come later.
 
 ## Run it
 
@@ -32,19 +32,19 @@ browser never contacts the backend directly and no CORS setup is needed yet.
 |---|---|
 | `/` | Dashboard: active and completed runs |
 | `/supervisors` | Supervisors referenced by existing runs (read-only) |
-| `/runs/[runId]` | Basic run information (with a success banner right after a run is started) |
+| `/runs/[runId]` | Basic run information (with a success banner right after a run is started) and, for an active run, an **Inject an event** form |
 | `/supervisors/new` | Create a supervisor (tools, wake behaviour, terminal statuses, status mapping) |
 | `/runs/new` | Start a run: order ID, supervisor, run-specific instructions |
 
 ## Backend endpoints used
 
 `GET /api/runs`, `GET /api/runs/{run_id}`, `GET /api/supervisors/{supervisor_id}`, `POST /api/supervisors`,
-`POST /api/runs`. All calls live in `src/api/`.
+`POST /api/runs`, `POST /api/runs/{run_id}/events`. All calls live in `src/api/`.
 
 ## How the browser writes to the backend
 
-The backend has no CORS configuration, so the browser never calls it. The two forms use React form actions backed by
-Next.js **Server Actions** (`src/app/supervisors/new/actions.ts`, `src/app/runs/new/actions.ts`): the browser posts to
+The backend has no CORS configuration, so the browser never calls it. The forms use React form actions backed by
+Next.js **Server Actions** (`src/app/supervisors/new/actions.ts`, `src/app/runs/new/actions.ts`, `src/app/runs/[runId]/actions.ts`): the browser posts to
 the Next.js server, and the action calls FastAPI from there. Validation stays authoritative in the backend; the forms
 only catch obvious mistakes early. Backend errors are turned into readable messages (`src/api/messages.ts`), and the
 submit button is disabled while a request is in flight.

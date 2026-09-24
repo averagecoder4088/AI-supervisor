@@ -64,3 +64,16 @@ export interface RunCreateBody {
   supervisor_id: string;
   run_instructions: string[];
 }
+
+/** EventCreate: POST /api/runs/{run_id}/events. `payload` is a free-form JSON object. */
+export interface EventCreateBody {
+  event_type: string;
+  payload: Record<string, unknown>;
+}
+
+/** Accepted: the 202 body. It means "delivered to the workflow boundary", NOT "processed". */
+export interface Accepted {
+  run_id: string;
+  request: string;
+  accepted: boolean;
+}

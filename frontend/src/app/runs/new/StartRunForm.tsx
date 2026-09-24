@@ -16,9 +16,12 @@ export function StartRunForm({ options, selectedId }: { options: SupervisorOptio
   const [state, formAction] = useActionState<FormState, FormData>(startRunAction, IDLE);
   const values = state.status === "error" ? state.values : null;
   const str = (key: string, fallback: string) => (values ? ((values[key] as string) ?? "") : fallback);
+  // A fresh form per result: React resets a form after every action to the values it was MOUNTED with, so
+  // without this the chosen supervisor would revert after an error (and a resubmit would use the wrong one).
+  const formKey = state.status === "error" ? (state.at ?? "error") : "idle";
 
   return (
-    <form action={formAction} className="space-y-6">
+    <form key={formKey} action={formAction} className="space-y-6">
       {state.status === "error" && <FormAlert failure={state} />}
 
       <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">

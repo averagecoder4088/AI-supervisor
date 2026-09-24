@@ -8,7 +8,7 @@ export interface FailureView {
   httpStatus: number | null;
 }
 
-type Context = "supervisor" | "run";
+type Context = "supervisor" | "run" | "event";
 
 /**
  * Turn any failure into user-facing text. Known backend error codes get an explanation of what
@@ -55,7 +55,22 @@ export function describeFailure(error: unknown, context: Context): FailureView {
         title: "A workflow for this order already exists",
         message: `${error.message}. Use a different order ID.`,
       };
+    case "RUN_NOT_FOUND":
+      return { ...base, title: "Run not found", message: "The backend has no run with this ID, so nothing was sent." };
+    case "RUN_NOT_ACTIVE":
+      return {
+        ...base,
+        title: "The run is no longer active",
+        message: `${error.message}. Only an active run can accept events (a completed, terminated or failed run cannot). Nothing was sent.`,
+      };
     case "TEMPORAL_UNAVAILABLE":
+      if (context === "event") {
+        return {
+          ...base,
+          title: "Temporal is unavailable",
+          message: "The backend cannot reach Temporal, so the event was NOT delivered to the workflow. Start Temporal and try again.",
+        };
+      }
       return {
         ...base,
         title: "Temporal is unavailable",
@@ -73,7 +88,7 @@ export function describeFailure(error: unknown, context: Context): FailureView {
   if (status !== null && status >= 400) {
     return {
       ...base,
-      title: context === "supervisor" ? "The supervisor was not created" : "The run was not started",
+      title: context === "supervisor" ? "The supervisor was not created" : context === "event" ? "The event was not sent" : "The run was not started",
       message: error.message,
     };
   }

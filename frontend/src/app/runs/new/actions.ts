@@ -30,6 +30,7 @@ export async function startRunAction(_previous: FormState, formData: FormData): 
     code: null,
     httpStatus: null,
     values,
+    at: new Date().toISOString(),
   });
 
   const orderId = (values.order_id as string).trim();
@@ -48,7 +49,7 @@ export async function startRunAction(_previous: FormState, formData: FormData): 
   try {
     run = await createRun({ order_id: orderId, supervisor_id: supervisorId, run_instructions: instructions });
   } catch (error) {
-    return { status: "error", ...describeFailure(error, "run"), values };
+    return { status: "error", ...describeFailure(error, "run"), values, at: new Date().toISOString() };
   }
   if (!run || typeof run.id !== "string") {
     return {
@@ -58,6 +59,7 @@ export async function startRunAction(_previous: FormState, formData: FormData): 
       code: "MALFORMED_RESPONSE",
       httpStatus: null,
       values,
+      at: new Date().toISOString(),
     };
   }
   redirect(`/runs/${encodeURIComponent(run.id)}?started=1`);

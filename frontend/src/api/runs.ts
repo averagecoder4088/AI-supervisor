@@ -1,5 +1,5 @@
 import { apiGet, apiPost } from "./client";
-import type { Run, RunCreateBody } from "./types";
+import type { Accepted, EventCreateBody, Run, RunCreateBody } from "./types";
 
 // Mirrors the backend's ACTIVE_STATUSES (backend/app/api/runs.py); "active" is the legacy default.
 const ACTIVE_STATUSES = new Set(["starting", "running", "active"]);
@@ -21,4 +21,12 @@ export function getRun(runId: string): Promise<Run> {
 /** POST /api/runs: records the run and starts its Temporal workflow (201 = running). */
 export function createRun(body: RunCreateBody): Promise<Run> {
   return apiPost<Run>("/api/runs", body);
+}
+
+/**
+ * POST /api/runs/{run_id}/events: the backend sends the event into the run's Temporal workflow as a
+ * Signal. 202 means accepted at the workflow boundary; the workflow records it a moment later.
+ */
+export function injectEvent(runId: string, body: EventCreateBody): Promise<Accepted> {
+  return apiPost<Accepted>(`/api/runs/${encodeURIComponent(runId)}/events`, body);
 }
