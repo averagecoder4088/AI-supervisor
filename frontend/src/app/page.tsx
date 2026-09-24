@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { isActiveRun, listRuns } from "@/api/runs";
 import { loadSupervisors } from "@/api/supervisors";
 import type { Run } from "@/api/types";
@@ -27,9 +28,16 @@ export default async function DashboardPage() {
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
           <p className="font-medium">No runs yet</p>
           <p className="mt-1 text-sm text-slate-500">
-            A run appears here once it is created through the backend (<code>POST /api/runs</code>). Starting runs
-            from this UI comes in a later step.
+            Create a supervisor, then start a run for an order.
           </p>
+          <div className="mt-4 flex justify-center gap-3 text-sm">
+            <Link href="/supervisors/new" className="rounded border border-slate-300 px-3 py-1.5 hover:bg-slate-50">
+              Create supervisor
+            </Link>
+            <Link href="/runs/new" className="rounded bg-blue-700 px-3 py-1.5 text-white hover:bg-blue-800">
+              Start run
+            </Link>
+          </div>
         </div>
       </>
     );

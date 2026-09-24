@@ -1,9 +1,14 @@
-import { apiGet } from "./client";
-import type { Run, Supervisor } from "./types";
+import { apiGet, apiPost } from "./client";
+import type { Run, Supervisor, SupervisorCreateBody } from "./types";
 
 /** GET /api/supervisors/{id}. The backend has no supervisor list endpoint. */
 export function getSupervisor(supervisorId: string): Promise<Supervisor> {
   return apiGet<Supervisor>(`/api/supervisors/${encodeURIComponent(supervisorId)}`);
+}
+
+/** POST /api/supervisors (never starts a workflow). An existing name gets the next version. */
+export function createSupervisor(body: SupervisorCreateBody): Promise<Supervisor> {
+  return apiPost<Supervisor>("/api/supervisors", body);
 }
 
 /**

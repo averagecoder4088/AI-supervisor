@@ -43,3 +43,24 @@ export interface ApiErrorBody {
   error: string;
   code: string;
 }
+
+/** SupervisorCreate: POST /api/supervisors (the backend rejects any extra field). */
+export interface SupervisorCreateBody {
+  name: string;
+  description: string | null;
+  instructions: string;
+  wake_policy: { important_event_types: string[] };
+  enabled_tools: string[];
+  default_wake_interval_minutes: number;
+  min_wake_interval_minutes: number;
+  max_wake_interval_minutes: number;
+  terminal_order_statuses: string[];
+  order_status_by_event: Record<string, string>;
+}
+
+/** RunCreate: POST /api/runs. */
+export interface RunCreateBody {
+  order_id: string;
+  supervisor_id: string;
+  run_instructions: string[];
+}

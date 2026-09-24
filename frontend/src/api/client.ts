@@ -1,8 +1,8 @@
 // The single place that talks HTTP to the backend.
 //
 // The base URL comes from the API_BASE_URL environment variable (see .env.example);
-// the local default matches `uvicorn app.main:app` from the backend README. All calls
-// currently run on the server (Server Components), so the browser never contacts the
+// the local default matches `uvicorn app.main:app` from the backend README. Every call runs on
+// the Next.js server (Server Components and Server Actions), so the browser never contacts the
 // backend directly and no CORS configuration is needed.
 
 import type { ApiErrorBody } from "./types";
@@ -28,16 +28,29 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   const url = `${apiBaseUrl()}${path}`;
   let response: Response;
   try {
     response = await fetch(url, {
+      method,
       cache: "no-store", // always live data
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new ApiError(
+        `The backend did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+        null,
+        "BACKEND_TIMEOUT",
+        url,
+      );
+    }
     const reason = err instanceof Error ? err.message : String(err);
     throw new ApiError(
       `Cannot reach the backend at ${apiBaseUrl()} (${reason}). Is it running, and is API_BASE_URL correct?`,
@@ -48,18 +61,31 @@ export async function apiGet<T>(path: string): Promise<T> {
   }
 
   if (!response.ok) {
-    let body: Partial<ApiErrorBody> = {};
+    let errorBody: Partial<ApiErrorBody> = {};
     try {
-      body = (await response.json()) as Partial<ApiErrorBody>;
+      errorBody = (await response.json()) as Partial<ApiErrorBody>;
     } catch {
       // not JSON: fall back to the status line below
     }
     throw new ApiError(
-      body.error ?? `Backend answered HTTP ${response.status} ${response.statusText}`.trim(),
+      errorBody.error ?? `Backend answered HTTP ${response.status} ${response.statusText}`.trim(),
       response.status,
-      body.code ?? null,
+      errorBody.code ?? null,
       url,
     );
   }
-  return (await response.json()) as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new ApiError("The backend answered successfully but the response was not valid JSON.", response.status, "MALFORMED_RESPONSE", url);
+  }
+}
+
+export function apiGet<T>(path: string): Promise<T> {
+  return request<T>("GET", path);
+}
+
+/** POST a JSON body. Only ever called from Server Actions (never from the browser). */
+export function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("POST", path, body);
 }

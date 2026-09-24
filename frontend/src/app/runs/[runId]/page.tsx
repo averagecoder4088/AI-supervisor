@@ -10,8 +10,15 @@ import { formatTimestamp } from "@/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function RunDetailPage({ params }: { params: Promise<{ runId: string }> }) {
+export default async function RunDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ runId: string }>;
+  searchParams: Promise<{ started?: string }>;
+}) {
   const { runId } = await params;
+  const { started } = await searchParams;
 
   let run: Run;
   try {
@@ -54,6 +61,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   return (
     <>
       <BackLink />
+      {started && (
+        <div role="status" className="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+          <p className="font-medium">Run started.</p>
+          <p className="mt-1">
+            The supervisor workflow <span className="font-mono">order-{run.order_id}</span> is now running on Temporal.
+          </p>
+        </div>
+      )}
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold">Order {run.order_id}</h1>
         <StatusBadge status={run.status} />

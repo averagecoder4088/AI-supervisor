@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { listRuns } from "@/api/runs";
 import { loadSupervisors } from "@/api/supervisors";
 import type { Run } from "@/api/types";
@@ -30,8 +31,16 @@ export default async function SupervisorsPage() {
     <>
       <h1 className="mb-1 text-2xl font-semibold">Supervisors</h1>
       <p className="mb-6 text-sm text-slate-500">
-        Supervisors used by existing runs. The backend has no supervisor list endpoint yet, so a supervisor with no
-        runs is not shown here. Creating supervisors comes in a later step.
+        Supervisors used by existing runs. The backend has no supervisor list endpoint, so a supervisor with no runs is
+        not shown here.{" "}
+        <Link href="/supervisors/new" className="text-blue-700 hover:underline">
+          Create a supervisor
+        </Link>{" "}
+        or{" "}
+        <Link href="/runs/new" className="text-blue-700 hover:underline">
+          start a run
+        </Link>
+        .
       </p>
 
       {supervisors.length === 0 ? (
