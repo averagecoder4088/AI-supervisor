@@ -15,7 +15,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.mock_factories import create_mock_order, create_mock_shipment
+from app.db.mock_factories import create_mock_customer_message, create_mock_order, create_mock_shipment
 from app.db.mock_models import MockOrder, MockShipment
 
 # Order status implied by each simulated event (approved S1 transitions). The
@@ -26,6 +26,17 @@ EVENT_ORDER_STATUS: Dict[str, str] = {
     "shipment_created": "shipped",
     "delivered": "delivered",
 }
+
+# Sealed S1 keeps its own table above. The delayed-shipment scenario (S2) adds one event.
+SHIPMENT_DELAYED_ORDER_STATUS = "delayed"
+EVENT_ORDER_STATUS_WITH_DELAY: Dict[str, str] = {
+    **EVENT_ORDER_STATUS,
+    "shipment_delayed": SHIPMENT_DELAYED_ORDER_STATUS,
+}
+
+# Delivery is valid only from these states (a delayed shipment can still be delivered).
+DELIVERABLE_ORDER_STATUSES = ("shipped", "delayed")
+DELIVERABLE_SHIPMENT_STATUSES = ("created", "in_transit", "delayed")
 
 PAYMENT_PAYLOAD: Dict[str, Any] = {"amount": 49.99, "currency": "USD"}
 
@@ -86,19 +97,38 @@ class ExternalWorld:
                 payload = {"shipment_id": shipment.shipment_id, "tracking_number": shipment.tracking_number}
         await self._emit(run_id, "shipment_created", payload)
 
-    async def deliver(self, run_id: str, order_id: str) -> None:
-        """One transaction: shipment and order become delivered."""
+    async def delay_shipment(self, run_id: str, order_id: str, delay_reason: str) -> None:
+        """One transaction: the shipment is delayed and the order follows. ``escalated`` is untouched."""
         async with self._session_factory() as session:
             async with session.begin():
                 order = await self._order(session, order_id, for_update=True)
-                self._require(order.status == "shipped", order, "deliver")
-                shipment = (
-                    await session.execute(
-                        select(MockShipment).where(MockShipment.order_id == order_id).with_for_update()
-                    )
-                ).scalar_one_or_none()
-                if shipment is None:
-                    raise InvalidTransition(f"order {order_id!r} has no shipment to deliver")
+                self._require(order.status == "shipped", order, "delay the shipment")
+                shipment = await self._shipment(session, order_id)
+                if shipment.status not in ("created", "in_transit"):
+                    raise InvalidTransition(f"cannot delay: shipment of {order_id!r} is {shipment.status!r}")
+                shipment.status = "delayed"
+                shipment.delay_reason = delay_reason
+                order.status = SHIPMENT_DELAYED_ORDER_STATUS
+                payload = {"shipment_id": shipment.shipment_id, "delay_reason": delay_reason}
+        await self._emit(run_id, "shipment_delayed", payload)
+
+    async def customer_message(self, run_id: str, order_id: str, message: str) -> None:
+        """The customer writes in: one INBOUND message row. The order and shipment are untouched."""
+        async with self._session_factory() as session:
+            async with session.begin():
+                await self._order(session, order_id)
+                await create_mock_customer_message(session, order_id=order_id, message=message, direction="inbound")
+        await self._emit(run_id, "customer_message_received", {"message": message})
+
+    async def deliver(self, run_id: str, order_id: str) -> None:
+        """One transaction: shipment and order become delivered. Other shipment fields are kept."""
+        async with self._session_factory() as session:
+            async with session.begin():
+                order = await self._order(session, order_id, for_update=True)
+                self._require(order.status in DELIVERABLE_ORDER_STATUSES, order, "deliver")
+                shipment = await self._shipment(session, order_id)
+                if shipment.status not in DELIVERABLE_SHIPMENT_STATUSES:
+                    raise InvalidTransition(f"cannot deliver: shipment of {order_id!r} is {shipment.status!r}")
                 shipment.status = "delivered"
                 order.status = EVENT_ORDER_STATUS["delivered"]
                 payload = {"shipment_id": shipment.shipment_id}
@@ -115,6 +145,15 @@ class ExternalWorld:
         if order is None:
             raise InvalidTransition(f"mock order {order_id!r} does not exist")
         return order
+
+    @staticmethod
+    async def _shipment(session: AsyncSession, order_id: str) -> MockShipment:
+        shipment: Optional[MockShipment] = (
+            await session.execute(select(MockShipment).where(MockShipment.order_id == order_id).with_for_update())
+        ).scalar_one_or_none()
+        if shipment is None:
+            raise InvalidTransition(f"order {order_id!r} has no shipment")
+        return shipment
 
     @staticmethod
     def _require(condition: bool, order: MockOrder, action: str) -> None:
