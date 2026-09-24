@@ -44,196 +44,169 @@ The responsibilities are split on purpose:
 
 ### System architecture
 
-The browser never talks to FastAPI, Temporal or PostgreSQL directly.
+Where the components live. Read it top to bottom; the solid lines are the main path.
 
 ```mermaid
 flowchart TB
-    subgraph BR["Browser"]
-        live["LiveRefresh (client code)<br/>asks for a re-render every 3 s while a run is active"]
-        user(["User"])
-    end
+    browser["Browser"]
+    next["Next.js App Router"]
+    api["FastAPI"]
+    temporal["Temporal"]
+    wf["Worker: OrderWorkflow<br/>one per order"]
+    act["Activities"]
+    pg[("PostgreSQL")]
+    llm["LLM"]
+    tools["Mock Tools"]
 
-    subgraph FE["Next.js App Router (frontend, port 3000)"]
-        pages["Server Components<br/>read pages: dashboard, run page"]
-        actions["Server Actions<br/>every write: forms and human controls"]
-    end
+    browser -->|"HTTP"| next
+    next -->|"REST, server-side"| api
+    api -->|"start, Signal, Query"| temporal
+    temporal -->|"task queue"| wf
+    wf -->|"executes"| act
+    act -->|"persists"| pg
+    act -->|"reasons"| llm
+    act -->|"executes tool"| tools
+    api -.->|"reads history"| pg
 
-    subgraph BE["FastAPI (backend/app/api, port 8000)"]
-        api["REST API<br/>supervisors, runs, events, instructions,<br/>human controls, observation"]
-        tclient["Temporal client<br/>start, Signal, Query, terminate"]
-    end
-
-    subgraph TS["Temporal server"]
-        thist["Workflow history and durable timers<br/>task queue: order-supervisor"]
-    end
-
-    subgraph WK["Worker process (python -m app.temporal.worker)"]
-        wf["OrderWorkflow<br/>one workflow per order, id: order-{order_id}<br/>deterministic state, Signals, Query, durable timers"]
-        subgraph ACT["Activities: all I/O and non-determinism"]
-            llmact["LLM Activities<br/>reasoning decision, final output"]
-            persist["Persistence Activities<br/>events, timeline, actions, memory,<br/>instructions, complete run"]
-            toolact["execute_tool Activity<br/>4 mocked tools"]
-        end
-    end
-
-    pg[("PostgreSQL<br/>supervisors, runs, events, timeline_entries,<br/>actions, tool_executions, memory_snapshots,<br/>final_outputs, mock_* operational tables")]
-    llm["LLM provider<br/>Gemini or OpenAI<br/>(FakeLLM only in tests and validation)"]
-
-    user -->|"page views, only to Next.js"| pages
-    user -->|"form submits"| actions
-    live -.->|"router.refresh"| pages
-    pages -->|"GET, server-side"| api
-    actions -->|"POST, server-side"| api
-    api -->|"reads history, writes supervisors and runs"| pg
-    api --> tclient
-    tclient -->|"start workflow, Signals, Query, terminate"| thist
-    thist <-->|"worker polls the task queue"| wf
-    wf -->|"schedules"| llmact
-    wf -->|"schedules"| persist
-    wf -->|"schedules"| toolact
-    llmact -->|"structured JSON only"| llm
-    persist --> pg
-    toolact -->|"reads and changes mock order state"| pg
+    classDef front fill:#dbeafe,stroke:#2563eb,color:#111
+    classDef back fill:#e0e7ff,stroke:#4f46e5,color:#111
+    classDef orch fill:#ede9fe,stroke:#7c3aed,color:#111
+    classDef work fill:#dcfce7,stroke:#16a34a,color:#111
+    classDef data fill:#fef9c3,stroke:#ca8a04,color:#111
+    class browser,next front
+    class api back
+    class temporal,wf orch
+    class act work
+    class pg,llm,tools data
 ```
+
+- The browser only ever talks to Next.js (Server Components read, Server Actions write). It never talks to FastAPI, Temporal or PostgreSQL directly.
+- FastAPI starts the workflow, sends Signals (events, instructions, pause, resume, interrupt), queries its live state and can terminate it. It reads the recorded history straight from PostgreSQL (dotted line) and never writes events itself: the workflow's Activities do.
+- **Temporal is the orchestration layer**: durable timers, Signals and workflow state. The worker process (`python -m app.temporal.worker`) hosts `OrderWorkflow` (id `order-{order_id}`) and runs its Activities.
+- **Activities do all the non-deterministic work**: persisting to PostgreSQL, calling the LLM (which only returns a structured decision) and running the tools. The mock tools read and change the `mock_*` tables in PostgreSQL. PostgreSQL stores application and history data; it is not the workflow engine.
 
 ### Order workflow lifecycle
 
-One `OrderWorkflow` per order (workflow id `order-{order_id}`). The main loop never spins: each pass persists what Signals queued, then either runs one reasoning cycle, waits while paused, or sleeps on a durable Temporal timer.
+How one workflow progresses. One `OrderWorkflow` per order; the loop never spins: it either reasons once or waits on a durable timer.
 
 ```mermaid
-flowchart TD
-    create["POST /api/runs<br/>order id, supervisor, run instructions"] --> starting["runs row saved as 'starting' in PostgreSQL"]
-    starting --> start["FastAPI starts OrderWorkflow  id: order-{order_id}<br/>input: supervisor snapshot + run instructions"]
-    start --> running["FastAPI records runs.status = 'running'<br/>('failed' if the workflow could not be started)"]
-    running --> init["Workflow initializes its state<br/>empty memory, wake reason = workflow_start"]
-    init --> loop["Loop pass: persist queued events, timeline<br/>and instruction changes (Activities)"]
+flowchart TB
+    start(["Run created"]) --> init["Start OrderWorkflow"]
+    init -->|"1. workflow start"| reason["Reason<br/>LLM Activity"]
+    signals["Signals<br/>event, instruction, resume"] -->|"2. important event"| reason
+    wait["Wait<br/>durable timer"] -->|"3. timer fires"| reason
+    reason --> tool["Optional tool"]
+    tool --> memory["Update memory"]
+    memory --> schedule["Schedule next wake"]
+    schedule --> wait
 
-    loop --> term{"Order status is a configured<br/>terminal status?"}
-    term -->|"yes"| final["Terminal handling"]
-    term -->|"no"| paused{"Paused?"}
-    paused -->|"yes"| waitp["Wait until Resume<br/>events are still recorded"]
-    waitp --> loop
-    paused -->|"no"| due{"Wake reason set?"}
-    due -->|"yes"| cycle["Reasoning cycle<br/>(see the wake and reasoning model)"]
-    due -->|"no"| sleep["Sleep on a durable Temporal timer<br/>until next_wake_at<br/>or until a Signal sets a wake reason"]
-    sleep --> loop
+    signals -.->|"event sets a<br/>terminal status"| terminal["Terminal status reached<br/>not an LLM decision"]
+    terminal --> final["Final output"]
+    final --> complete["Complete run"]
+    complete --> done(["End"])
 
-    cycle --> tool{"Validated decision<br/>requests a tool?"}
-    tool -->|"yes"| exec["Record action started<br/>execute_tool Activity<br/>Record action finished + timeline entry"]
-    tool -->|"no"| mem
-    exec --> mem["Save memory snapshot (Activity)"]
-    mem --> sched["Schedule next wake-up<br/>requested minutes, clamped to the supervisor's min and max"]
-    sched --> loop
-
-    final --> fo["Final-output Activity (LLM)<br/>deterministic fallback if it fails"]
-    fo --> done["complete_run Activity<br/>final_outputs row + run status 'completed'"]
-    done --> fin(["Workflow ends"])
-
-    sigev["Signal submit_event"] -.->|"record; apply status mapping;<br/>important events set wake reason = important_event"| loop
-    siginst["Signal add_run_instruction"] -.->|"store; wake reason = instruction_added"| loop
-    sigctl["Signals pause, resume, interrupt"] -.->|"pause: stop reasoning<br/>resume: wake reason = resume<br/>interrupt: drop the in-flight cycle"| loop
-    kill["Terminate (Temporal client hard stop, not a Signal)"] -.-> dead(["Workflow terminated"])
+    classDef sig fill:#dbeafe,stroke:#2563eb,color:#111
+    classDef llmc fill:#dcfce7,stroke:#16a34a,color:#111
+    classDef tool fill:#ffedd5,stroke:#ea580c,color:#111
+    classDef sleep fill:#f1f5f9,stroke:#64748b,color:#111
+    classDef term fill:#ede9fe,stroke:#7c3aed,color:#111
+    classDef step fill:#ffffff,stroke:#94a3b8,color:#111
+    class signals sig
+    class reason llmc
+    class tool tool
+    class wait sleep
+    class terminal,final,complete term
+    class start,init,memory,schedule,done step
 ```
 
-Notes that matter for reading the diagram:
-
 - **Terminal is not an LLM decision.** A run ends when the order's status reaches one of the supervisor's configured *terminal order statuses*. The status changes when an event arrives whose type the supervisor maps to a status (for example `delivered` to `delivered`). A decision that comes back after the order became terminal is discarded.
-- **A cycle runs at most one tool.** The tool is executed by the workflow through an Activity, never by the LLM.
-- **Sleeping is a real Temporal timer.** Signals wake the wait early only to persist records or start a cycle; the scheduled wake-up time itself is not moved by routine events.
+- **Starting a run.** `POST /api/runs` saves the run as `starting`, FastAPI starts the workflow and then records `running` (or `failed` if the workflow could not be started).
+- **The three triggers** are the assignment's: workflow start, an important incoming event, a scheduled wake-up. A run instruction and Resume also wake the supervisor, but not while it is paused or the order is terminal.
+- **A cycle runs at most one tool.** The workflow executes it through an Activity, never the LLM. Sleeping is a real Temporal timer; a routine event does not move the scheduled wake-up.
+- **Human controls.** Pause stops reasoning (events are still recorded), Resume wakes the supervisor, Interrupt drops the in-flight cycle, and Terminate is Temporal's client-side hard stop, not a Signal.
 
 ### Wake and reasoning model
 
-The assignment requires three inference triggers: **workflow start**, **an important incoming event** and **a scheduled wake-up**. Two more are implemented on top: **a run-specific instruction** and **resume**. Not every event reaches the LLM.
+What causes reasoning, and what happens to the resulting decision. Not every event reaches the LLM.
 
 ```mermaid
-flowchart TD
-    ev["Incoming event<br/>Signal submit_event"] --> rec["Always: recorded in PostgreSQL + timeline entry<br/>order status updated if the supervisor maps this event"]
-    rec --> pol{"Wake policy: is the event type in the<br/>supervisor's important_event_types?<br/>and not paused, not terminal,<br/>no wake already queued"}
-    pol -->|"no"| routine["Routine event<br/>no wake, next_wake_at unchanged<br/>the LLM sees it at its next wake-up"]
-    pol -->|"yes"| t2["Trigger 2: important event"]
+flowchart TB
+    event["Incoming event"] --> policy{"Wake policy:<br/>important?"}
+    policy -->|"no"| record["Recorded only<br/>no wake"]
+    policy -->|"yes: 2. important event"| reason
+    start["1. Workflow start"] --> reason
+    timer["3. Timer"] --> reason
+    reason["Reasoning Activity<br/>LLM, structured JSON"] --> decision["Structured decision<br/>tool, next wake,<br/>memory update, assessment"]
+    decision --> validate{"Workflow validation<br/>and checkpoint"}
+    validate -->|"valid"| apply["Run tool, save memory,<br/>schedule next wake"]
+    validate -->|"stale or invalid"| discard["Discard<br/>no state change"]
 
-    subgraph REQ["The assignment's three triggers"]
-        t1["Trigger 1: workflow start"]
-        t2
-        t3["Trigger 3: scheduled wake-up<br/>durable timer expires"]
-    end
-
-    subgraph EXTRA["Also implemented"]
-        t4["Run instruction added<br/>not while paused or terminal"]
-        t5["Resume after Pause"]
-    end
-
-    t1 --> wake["Wake reason set"]
-    t2 --> wake
-    t3 --> wake
-    t4 --> wake
-    t5 --> wake
-
-    wake --> act["Reasoning Activity<br/>LLM returns structured JSON only<br/>input: compact memory, new and recent events,<br/>supervisor + run instructions, enabled tools"]
-    act --> chk["Workflow checkpoint<br/>discard the decision if interrupted, paused or terminal<br/>re-validate tool, inputs and enabled tools, one tool at most"]
-    chk --> dec["Structured decision"]
-    dec --> d1["tool: none or one of the enabled tools"]
-    dec --> d2["next wake: requested minutes, clamped to min and max"]
-    dec --> d3["memory update: situation summary + open concerns"]
-    dec --> d4["assessment: recorded as a decision entry on the timeline"]
-
-    rec -.->|"if the new order status is a terminal status"| term["Terminal order status reached"]
-    term --> fin["Final-output Activity<br/>no further reasoning cycle"]
+    classDef trig fill:#dbeafe,stroke:#2563eb,color:#111
+    classDef llmc fill:#dcfce7,stroke:#16a34a,color:#111
+    classDef okc fill:#f1f5f9,stroke:#64748b,color:#111
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#111
+    class event,start,timer trig
+    class reason,decision llmc
+    class record,apply okc
+    class discard bad
+    classDef decide fill:#fef3c7,stroke:#d97706,color:#111
+    class policy,validate decide
 ```
+
+- **Trigger 2 is the "important event" case.** Every event is recorded and can update the order status; the wake policy then checks whether the event type is in the supervisor's `important_event_types` (and the supervisor is not paused, the order is not terminal, and no wake is already queued). A routine event leaves the timer untouched and is seen at the next wake-up.
+- **Also wakes the supervisor:** a run instruction and Resume (same path into the Reasoning Activity, not shown to keep the diagram compact).
+- **The LLM only returns a decision.** Its input is compact memory, new and recent events, the supervisor and run instructions and the enabled tools; it never sees the full history.
+- **The workflow validates before acting.** It discards the decision if the cycle was interrupted, the supervisor was paused or the order became terminal in the meantime. Otherwise it re-checks the tool against the fixed registry and the supervisor's enabled tools, allows one tool at most with its required inputs, and clamps the requested wake time to the supervisor's minimum and maximum. A discarded decision changes no workflow state.
+- **Terminal is not a decision.** When the order status becomes terminal the workflow stops reasoning and produces the final output (see the lifecycle diagram).
 
 ### Representative demo flow
 
-This is the sealed **S2 "delayed shipment"** scenario. It is a representative flow, **not a hard-coded path**: the events are supplied by the simulator or an operator, and in a live run the LLM chooses the tools. The tools act on the mock operational tables, which the simulator prepares in the test; see [Setup](#setup) for how to prepare them for a UI-driven run. The supervisor used here lists `shipment_delayed` and `customer_message_received` as important events.
+This is the sealed **S2 "delayed shipment"** scenario, a representative flow and **not a hard-coded path**: the events come from the simulator or an operator, and in a live run the LLM chooses the tools. In the S2 test the simulator first changes the mock tables (order, shipment, delay) and then sends each event; the UI's event panel only sends the event (see [Setup](#setup), step 7, to prepare the mock rows for a UI-driven run). Every event and instruction reaches the workflow as a Signal through FastAPI. The supervisor used here lists `shipment_delayed` and `customer_message_received` as important events.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant Op as Simulator or operator
-    participant API as FastAPI
-    participant WF as OrderWorkflow
-    participant LLM as Reasoning Activity (LLM)
-    participant T as Mock tools (PostgreSQL state)
+flowchart LR
+    subgraph P1["1. Start"]
+        direction TB
+        r1["Reason<br/>workflow start"] --> z1["Sleep<br/>durable timer"]
+        z1 --> e1["order_created, payment_confirmed,<br/>shipment_created<br/>recorded, no wake"]
+        e1 --> e2["Run instruction:<br/>escalate if delayed"]
+        e2 --> r2["Reason<br/>instruction added"]
+    end
+    subgraph P2["2. Delay"]
+        direction TB
+        e3["shipment_delayed<br/>important event"] --> r3["Reason"]
+        r3 --> t1["Tool: escalate_shipment"]
+        t1 --> e4["customer_message_received<br/>important event"]
+        e4 --> r4["Reason"]
+        r4 --> t2["Tool: send_customer_update"]
+    end
+    subgraph P3["3. Follow-up and completion"]
+        direction TB
+        z2["Sleep<br/>next wake in 45 min"] --> r5["Reason<br/>scheduled wake-up"]
+        r5 --> t3["Tool: get_shipment_status"]
+        t3 --> e5["delivered<br/>terminal status reached"]
+        e5 --> fo["Final output"]
+        fo --> done(["Run completed"])
+    end
+    P1 --> P2
+    P2 --> P3
+    style P1 fill:#f8fafc,stroke:#cbd5e1
+    style P2 fill:#f8fafc,stroke:#cbd5e1
+    style P3 fill:#f8fafc,stroke:#cbd5e1
 
-    Note over Op,T: In the sealed S2 test the simulator first changes the mock tables<br/>(order, shipment, delay) and then sends each event.<br/>The UI's event panel only sends the event.
-    Note over API,WF: Every event and instruction reaches the workflow as a Signal through FastAPI<br/>(POST /events, POST /instructions). The Signals are drawn straight to the workflow for brevity.
-    Op->>API: start a run for the order
-    API->>WF: start workflow order-{order_id}
-    WF->>LLM: wake reason workflow_start
-    LLM-->>WF: no tool, memory update, next wake in 60 min
-    Note over WF: sleeps on a durable timer
-
-    Op->>WF: order_created, payment_confirmed, shipment_created
-    Note over WF: recorded, order status follows the mapping<br/>no wake, timer unchanged
-
-    Op->>WF: add run instruction "If shipment is delayed, escalate immediately."
-    WF->>LLM: wake reason instruction_added
-    LLM-->>WF: no tool, memory update
-
-    Op->>WF: shipment_delayed (important)
-    WF->>LLM: wake reason important_event
-    LLM-->>WF: tool escalate_shipment with reason and priority
-    WF->>T: execute escalate_shipment
-    T-->>WF: shipment marked escalated
-
-    Op->>WF: customer_message_received "Where is my order?" (important)
-    WF->>LLM: wake reason important_event
-    LLM-->>WF: tool send_customer_update, next wake in 45 min
-    WF->>T: execute send_customer_update
-    T-->>WF: outbound message stored
-
-    Note over WF: durable timer fires
-    WF->>LLM: wake reason scheduled_wakeup
-    LLM-->>WF: tool get_shipment_status
-    WF->>T: execute get_shipment_status
-    T-->>WF: shipment state read
-
-    Op->>WF: delivered
-    Note over WF: order status reaches the terminal status "delivered"
-    WF->>LLM: final-output Activity
-    LLM-->>WF: summary, key actions, key learnings, recommendations
-    Note over WF: complete_run persists the final output and the workflow ends
+    classDef ev fill:#dbeafe,stroke:#2563eb,color:#111
+    classDef rs fill:#dcfce7,stroke:#16a34a,color:#111
+    classDef tl fill:#ffedd5,stroke:#ea580c,color:#111
+    classDef sl fill:#f1f5f9,stroke:#64748b,color:#111
+    classDef tm fill:#ede9fe,stroke:#7c3aed,color:#111
+    class e1,e2,e3,e4 ev
+    class r1,r2,r3,r4,r5 rs
+    class t1,t2,t3 tl
+    class z1,z2 sl
+    class e5,fo,done tm
 ```
 
+Legend: blue = an event or instruction entering the workflow, green = the supervisor reasons (LLM), orange = a tool runs, grey = sleeping on a durable timer, purple = terminal completion.
 ---
 
 ## Key design decisions
