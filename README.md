@@ -207,6 +207,7 @@ flowchart LR
 ```
 
 Legend: blue = an event or instruction entering the workflow, green = the supervisor reasons (LLM), orange = a tool runs, grey = sleeping on a durable timer, purple = terminal completion.
+
 ---
 
 ## Key design decisions
