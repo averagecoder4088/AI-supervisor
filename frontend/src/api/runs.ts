@@ -1,5 +1,5 @@
 import { apiGet, apiPost } from "./client";
-import type { Accepted, EventCreateBody, Run, RunCreateBody } from "./types";
+import type { Accepted, EventCreateBody, InstructionCreateBody, Run, RunCreateBody } from "./types";
 
 // Mirrors the backend's ACTIVE_STATUSES (backend/app/api/runs.py); "active" is the legacy default.
 const ACTIVE_STATUSES = new Set(["starting", "running", "active"]);
@@ -29,4 +29,14 @@ export function createRun(body: RunCreateBody): Promise<Run> {
  */
 export function injectEvent(runId: string, body: EventCreateBody): Promise<Accepted> {
   return apiPost<Accepted>(`/api/runs/${encodeURIComponent(runId)}/events`, body);
+}
+
+/**
+ * POST /api/runs/{run_id}/instructions: the backend sends the instruction into the run's workflow as a
+ * Signal. The workflow stores it on the run, persists it a moment later, and normally wakes the supervisor
+ * to re-evaluate (a paused run records it but keeps supervisor reasoning paused until resumed). 202 means
+ * accepted at the workflow boundary, not yet recorded.
+ */
+export function addInstruction(runId: string, body: InstructionCreateBody): Promise<Accepted> {
+  return apiPost<Accepted>(`/api/runs/${encodeURIComponent(runId)}/instructions`, body);
 }

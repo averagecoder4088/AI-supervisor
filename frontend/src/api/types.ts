@@ -77,3 +77,8 @@ export interface Accepted {
   request: string;
   accepted: boolean;
 }
+
+/** InstructionCreate: POST /api/runs/{run_id}/instructions. The backend rejects a blank text and strips it. */
+export interface InstructionCreateBody {
+  instruction: string;
+}

@@ -8,7 +8,7 @@ export interface FailureView {
   httpStatus: number | null;
 }
 
-type Context = "supervisor" | "run" | "event";
+type Context = "supervisor" | "run" | "event" | "instruction";
 
 /**
  * Turn any failure into user-facing text. Known backend error codes get an explanation of what
@@ -61,14 +61,14 @@ export function describeFailure(error: unknown, context: Context): FailureView {
       return {
         ...base,
         title: "The run is no longer active",
-        message: `${error.message}. Only an active run can accept events (a completed, terminated or failed run cannot). Nothing was sent.`,
+        message: `${error.message}. Only an active run can accept ${context === "instruction" ? "instructions" : "events"} (a completed, terminated or failed run cannot). Nothing was sent.`,
       };
     case "TEMPORAL_UNAVAILABLE":
-      if (context === "event") {
+      if (context === "event" || context === "instruction") {
         return {
           ...base,
           title: "Temporal is unavailable",
-          message: "The backend cannot reach Temporal, so the event was NOT delivered to the workflow. Start Temporal and try again.",
+          message: `The backend cannot reach Temporal, so the ${context} was NOT delivered to the workflow. Start Temporal and try again.`,
         };
       }
       return {
@@ -88,7 +88,13 @@ export function describeFailure(error: unknown, context: Context): FailureView {
   if (status !== null && status >= 400) {
     return {
       ...base,
-      title: context === "supervisor" ? "The supervisor was not created" : context === "event" ? "The event was not sent" : "The run was not started",
+      title: context === "supervisor"
+          ? "The supervisor was not created"
+          : context === "event"
+            ? "The event was not sent"
+            : context === "instruction"
+              ? "The instruction was not added"
+              : "The run was not started",
       message: error.message,
     };
   }
