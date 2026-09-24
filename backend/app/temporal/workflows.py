@@ -608,6 +608,9 @@ class OrderWorkflow:
             )
             source = "fallback"
 
+        # Signals keep arriving while the final output is generated (the run is
+        # still open); persist what they queued so no event is silently lost.
+        await self._flush_records()
         await self._persist(
             COMPLETE_RUN,
             CompleteRunRecord(
@@ -624,6 +627,9 @@ class OrderWorkflow:
             ),
         )
         self._final_output_persisted = True
+        # Drain anything queued while complete_run was in flight before the workflow ends.
+        while self._has_unflushed_records():
+            await self._flush_records()
 
     def _status(self) -> OrderWorkflowStatus:
         return OrderWorkflowStatus(
