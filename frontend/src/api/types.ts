@@ -84,13 +84,77 @@ export interface InstructionCreateBody {
 }
 
 /**
- * The part of GET /api/runs/{run_id}/status (the workflow's get_status Query) the Human Controls use.
- * `state` is the workflow's own: "reasoning" | "sleeping" | "paused" | "terminal". Pause is NOT visible in
- * `runs.status` (a paused run still reads "running"), so this is the only place a pause shows.
+ * GET /api/runs/{run_id}/status: the workflow's own live state (its get_status Query). `state` is
+ * "reasoning" | "sleeping" | "paused" | "terminal". Pause is NOT visible in `runs.status` (a paused run still
+ * reads "running"), so this is the only place a pause shows. Only the fields this frontend reads are listed.
  */
 export interface WorkflowStatus {
   state: string;
-  interrupt_count: number;
+  order_status: string | null;
+  next_wake_at: string | null;
+  last_wake_reason: string | null;
   reasoning_count: number;
+  interrupt_count: number;
+  events_received: number;
+  /** Events recorded but not yet seen by a reasoning cycle (only the number is shown). */
+  pending_events: unknown[];
+  terminal_order_status_reached: boolean;
+  /** completed | llm_failed | interrupted | discarded_paused | discarded_terminal | null (no cycle yet). */
   last_cycle_outcome: string | null;
+  final_output_persisted: boolean;
+}
+
+// ---- Observation (backend/app/api/observation.py, schemas.py). Each list endpoint answers oldest first.
+
+/** timeline: event | action | control | instruction | decision | system. Only a message, no payload. */
+export interface TimelineEntry {
+  id: string;
+  entry_type: string;
+  message: string;
+  created_at: string;
+}
+
+/** The supervisor's compact working memory: situation_summary, open_concerns, last_action, last_wake_reason, cycle_count. */
+export interface MemorySnapshot {
+  id: string;
+  memory: Record<string, unknown>;
+  created_at: string;
+}
+
+/** One tool call by the supervisor. `action_type` is the tool name; status is pending | completed | failed. */
+export interface RunAction {
+  id: string;
+  action_type: string;
+  status: string;
+  reasoning: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+/** The execution of that tool. status is pending | success | failed; `error` is only set on failure. */
+export interface ToolExecution {
+  id: string;
+  action_id: string;
+  tool_name: string;
+  status: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+/** The stored final output; `final_output` is null until the run completes. */
+export interface FinalOutputResponse {
+  final_output: FinalOutput | null;
+  created_at: string | null;
+}
+
+export interface FinalOutput {
+  summary?: string;
+  key_actions?: string[];
+  key_learnings?: string[];
+  recommendations?: string[];
+  /** "llm" | "fallback". */
+  source?: string;
 }

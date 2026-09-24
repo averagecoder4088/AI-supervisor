@@ -1,16 +1,26 @@
 import Link from "next/link";
 import { ApiError } from "@/api/client";
+import { getActions, getFinalOutput, getMemory, getTimeline, getToolExecutions, settle } from "@/api/observation";
 import { getRun, isActiveRun } from "@/api/runs";
 import { getSupervisor } from "@/api/supervisors";
 import type { Run, Supervisor } from "@/api/types";
 import { ErrorPanel } from "@/components/ErrorPanel";
+import { RefreshButton } from "@/components/RefreshButton";
 import { RunNotFound } from "@/components/RunNotFound";
 import { OrderStatus, StatusBadge } from "@/components/StatusBadge";
 import { formatTimestamp } from "@/format";
 import { EventInjector } from "./EventInjector";
 import { HumanControls } from "./HumanControls";
 import { InstructionForm } from "./InstructionForm";
-import { loadControlMode } from "./controlMode";
+import { loadWorkflowView } from "./controlMode";
+import {
+  ActionsSection,
+  FinalOutputSection,
+  MemorySection,
+  TimelineSection,
+  ToolExecutionsSection,
+  WorkflowStatusSection,
+} from "./ObservationSections";
 
 export const dynamic = "force-dynamic";
 
@@ -37,21 +47,31 @@ export default async function RunDetailPage({
     );
   }
 
-  // A supervisor lookup failure must not hide the run: fall back to the id.
-  let supervisor: Supervisor | null = null;
-  try {
-    supervisor = await getSupervisor(run.supervisor_id);
-  } catch {
-    supervisor = null;
-  }
-
-  // Pause is not visible in run.status, so an active run's workflow state decides which controls to offer.
-  const controlMode = isActiveRun(run) ? await loadControlMode(run.id) : null;
+  // Everything else is read in parallel and each source fails on its own: a supervisor lookup or an
+  // observation source that fails must not hide the run or the other sections. The workflow's live status
+  // is read ONCE (it also decides which human controls are offered; pause is not visible in run.status) and
+  // only for an active run: the workflow of a finished run is closed.
+  const [supervisorResult, workflowView, timeline, memory, actions, toolExecutions, finalOutput] = await Promise.all([
+    settle(getSupervisor(run.supervisor_id)),
+    isActiveRun(run) ? loadWorkflowView(run.id) : Promise.resolve(null),
+    settle(getTimeline(run.id)),
+    settle(getMemory(run.id)),
+    settle(getActions(run.id)),
+    settle(getToolExecutions(run.id)),
+    settle(getFinalOutput(run.id)),
+  ]);
+  const supervisor: Supervisor | null = supervisorResult.ok ? supervisorResult.data : null;
+  const loadedAt = new Date().toISOString();
 
   const fields: [string, React.ReactNode][] = [
     ["Order ID", <span key="o" className="font-medium">{run.order_id}</span>],
     ["Run ID", <span key="r" className="break-all font-mono text-xs">{run.id}</span>],
-    ["Status", <StatusBadge key="s" status={run.status} />],
+    [
+      "Run status",
+      <span key="s">
+        <StatusBadge status={run.status} /> <span className="text-xs text-slate-500">(the application&apos;s record of the run)</span>
+      </span>,
+    ],
     ["Order status", <OrderStatus key="os" status={run.order_status} />],
     [
       "Supervisor",
@@ -63,6 +83,15 @@ export default async function RunDetailPage({
     ["Created", formatTimestamp(run.created_at)],
     ["Started", formatTimestamp(run.started_at)],
     ["Completed", formatTimestamp(run.completed_at)],
+    [
+      "Additional instructions",
+      <span key="i">
+        {run.run_instructions.length}{" "}
+        <a href="#instructions" className="text-blue-700 hover:underline">
+          (listed below)
+        </a>
+      </span>,
+    ],
   ];
 
   return (
@@ -76,13 +105,35 @@ export default async function RunDetailPage({
           </p>
         </div>
       )}
-      <div className="mb-6 flex flex-wrap items-center gap-3">
+      <div className="mb-2 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold">Order {run.order_id}</h1>
         <StatusBadge status={run.status} />
+        <div className="ml-auto flex items-center gap-3 text-xs text-slate-500">
+          <span>Loaded {formatTimestamp(loadedAt)}</span>
+          <RefreshButton />
+        </div>
       </div>
+      <nav aria-label="Sections" className="mb-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        {[
+          ["#overview", "Overview"],
+          ["#status", "Workflow status"],
+          ["#controls", "Human controls"],
+          ["#memory", "Memory"],
+          ["#timeline", "Timeline"],
+          ["#actions", "Actions"],
+          ["#tools", "Tool executions"],
+          ["#final-output", "Final output"],
+          ["#instructions", "Instructions"],
+          ["#events", "Inject an event"],
+        ].map(([href, label]) => (
+          <a key={href} href={href} className="text-blue-700 hover:underline">
+            {label}
+          </a>
+        ))}
+      </nav>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="mb-3 text-lg font-medium">Run</h2>
+      <section id="overview" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
+        <h2 className="mb-3 text-lg font-medium">Run overview</h2>
         <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2 text-sm">
           {fields.map(([label, value]) => (
             <div key={label} className="contents">
@@ -93,16 +144,24 @@ export default async function RunDetailPage({
         </dl>
       </section>
 
-      <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+      <WorkflowStatusSection run={run} view={workflowView} />
+
+      <section id="controls" className="mt-6 scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
         <h2 className="text-lg font-medium">Human controls</h2>
         <p className="mt-1 mb-4 text-sm text-slate-600">
           Pause, resume, interrupt or terminate this run&apos;s supervisor workflow. Each request goes through the backend
           to Temporal; the backend decides whether it is accepted.
         </p>
-        <HumanControls runId={run.id} mode={controlMode ?? "inactive"} runStatus={run.status} />
+        <HumanControls runId={run.id} mode={workflowView?.mode ?? "inactive"} runStatus={run.status} />
       </section>
 
-      <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+      <MemorySection result={memory} />
+      <TimelineSection result={timeline} />
+      <ActionsSection result={actions} />
+      <ToolExecutionsSection result={toolExecutions} />
+      <FinalOutputSection run={run} result={finalOutput} />
+
+      <section id="instructions" className="mt-6 scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
         <h2 className="text-lg font-medium">Additional instructions for this run ({run.run_instructions.length})</h2>
         <p className="mt-1 mb-3 text-sm text-slate-600">
           Instructions that apply to <span className="font-medium">this order only</span>. They are separate from the
@@ -140,7 +199,7 @@ export default async function RunDetailPage({
         )}
       </section>
 
-      <div className="mt-6">
+      <div id="events" className="mt-6 scroll-mt-4">
         {isActiveRun(run) ? (
           <EventInjector runId={run.id} workflowId={`order-${run.order_id}`} />
         ) : (
@@ -152,7 +211,8 @@ export default async function RunDetailPage({
       </div>
 
       <p className="mt-6 text-sm text-slate-500">
-        Live status, timeline, memory, actions and final output are added in the next step.
+        This page shows what each source reported when it was loaded ({formatTimestamp(loadedAt)}). It does not update by
+        itself: use Refresh to read everything again.
       </p>
     </>
   );

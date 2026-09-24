@@ -32,7 +32,7 @@ browser never contacts the backend directly and no CORS setup is needed yet.
 |---|---|
 | `/` | Dashboard: active and completed runs |
 | `/supervisors` | Supervisors referenced by existing runs (read-only) |
-| `/runs/[runId]` | Basic run information (with a success banner right after a run is started) and, for an active run, **Human controls** (pause, resume, interrupt, terminate), an **Additional instructions** form and an **Inject an event** form |
+| `/runs/[runId]` | Run observation: overview, live **Workflow status**, **Memory**, **Timeline**, **Actions**, **Tool executions** and **Final output** (each loads on its own, so one failing source does not break the page; a **Refresh** button re-reads them, there is no polling). For an active run also **Human controls** (pause, resume, interrupt, terminate), an **Additional instructions** form and an **Inject an event** form |
 | `/supervisors/new` | Create a supervisor (tools, wake behaviour, terminal statuses, status mapping) |
 | `/runs/new` | Start a run: order ID, supervisor, run-specific instructions |
 
@@ -40,7 +40,8 @@ browser never contacts the backend directly and no CORS setup is needed yet.
 
 `GET /api/runs`, `GET /api/runs/{run_id}`, `GET /api/supervisors/{supervisor_id}`, `POST /api/supervisors`,
 `POST /api/runs`, `POST /api/runs/{run_id}/events`, `POST /api/runs/{run_id}/instructions`,
-`GET /api/runs/{run_id}/status`, `POST /api/runs/{run_id}/pause|resume|interrupt|terminate`. All calls live in `src/api/`.
+`GET /api/runs/{run_id}/status`, `GET /api/runs/{run_id}/timeline|memory|actions|tool-executions|final-output`,
+`POST /api/runs/{run_id}/pause|resume|interrupt|terminate`. All calls live in `src/api/`.
 
 ## How the browser writes to the backend
 

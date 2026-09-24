@@ -1,9 +1,10 @@
 import { ApiError } from "@/api/client";
 import { getRunStatus } from "@/api/runs";
+import type { WorkflowStatus } from "@/api/types";
 
 /**
  * Which human controls an ACTIVE run should offer, from the workflow's own state (GET /status). The run's
- * `status` cannot say: a paused run still reads "running". Never throws, so a failing query cannot hide the page.
+ * `status` cannot say: a paused run still reads "running".
  *
  * - running: reasoning or sleeping           -> Pause, Interrupt, Terminate
  * - paused:  a human pause is in effect      -> Resume, Interrupt, Terminate
@@ -14,14 +15,23 @@ import { getRunStatus } from "@/api/runs";
  */
 export type ControlMode = "running" | "paused" | "finishing" | "closed" | "unavailable";
 
-export async function loadControlMode(runId: string): Promise<ControlMode> {
+/** The one /status read of a page render: what the Workflow Status section shows and what the controls offer. */
+export interface WorkflowView {
+  mode: ControlMode;
+  /** The workflow's live state; null when it could not be read (closed or unavailable). */
+  status: WorkflowStatus | null;
+  /** Why it could not be read; null when it was. */
+  error: unknown;
+}
+
+/** Never throws, so a failing query cannot hide the page. */
+export async function loadWorkflowView(runId: string): Promise<WorkflowView> {
   try {
-    const { state } = await getRunStatus(runId);
-    if (state === "paused") return "paused";
-    if (state === "terminal") return "finishing";
-    return "running";
+    const status = await getRunStatus(runId);
+    const mode: ControlMode = status.state === "paused" ? "paused" : status.state === "terminal" ? "finishing" : "running";
+    return { mode, status, error: null };
   } catch (error) {
-    if (error instanceof ApiError && error.status === 409) return "closed";
-    return "unavailable";
+    if (error instanceof ApiError && error.status === 409) return { mode: "closed", status: null, error };
+    return { mode: "unavailable", status: null, error };
   }
 }
