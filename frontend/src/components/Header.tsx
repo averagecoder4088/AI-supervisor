@@ -3,8 +3,8 @@ import Link from "next/link";
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/supervisors", label: "Supervisors" },
-  { href: "/supervisors/new", label: "Create Supervisor" },
-  { href: "/runs/new", label: "Start Run" },
+  { href: "/supervisors/new", label: "Create supervisor" },
+  { href: "/runs/new", label: "Start run" },
 ];
 
 export function Header() {

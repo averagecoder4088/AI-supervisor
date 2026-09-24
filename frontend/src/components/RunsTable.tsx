@@ -13,7 +13,7 @@ export function RunsTable({ runs, supervisors }: { runs: Run[]; supervisors: Map
             <th className="px-4 py-2 font-medium">Order</th>
             <th className="px-4 py-2 font-medium">Run ID</th>
             <th className="px-4 py-2 font-medium">Supervisor</th>
-            <th className="px-4 py-2 font-medium">Status</th>
+            <th className="px-4 py-2 font-medium">Run status</th>
             <th className="px-4 py-2 font-medium">Order status</th>
             <th className="px-4 py-2 font-medium">Created</th>
             <th className="px-4 py-2 font-medium">Completed</th>

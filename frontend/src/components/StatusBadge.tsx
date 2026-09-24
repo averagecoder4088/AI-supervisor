@@ -1,3 +1,5 @@
+import { Badge, type Tone } from "./Badge";
+
 const STYLES: Record<string, string> = {
   starting: "bg-amber-100 text-amber-800",
   running: "bg-blue-100 text-blue-800",
@@ -19,4 +21,11 @@ export function StatusBadge({ status }: { status: string }) {
 export function OrderStatus({ status }: { status: string | null }) {
   if (!status) return <span className="text-slate-400">—</span>;
   return <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-700">{status}</span>;
+}
+
+const WORKFLOW_TONE: Record<string, Tone> = { reasoning: "blue", sleeping: "slate", paused: "amber", terminal: "green" };
+
+/** The workflow's OWN live state (reasoning / sleeping / paused / terminal), not the run's status. */
+export function WorkflowStateBadge({ state }: { state: string }) {
+  return <Badge tone={WORKFLOW_TONE[state] ?? "slate"}>{state}</Badge>;
 }

@@ -6,8 +6,9 @@ import { getSupervisor } from "@/api/supervisors";
 import type { Run, Supervisor } from "@/api/types";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { LiveRefresh } from "@/components/LiveRefresh";
+import { SectionUnavailable } from "@/components/SectionUnavailable";
 import { RunNotFound } from "@/components/RunNotFound";
-import { OrderStatus, StatusBadge } from "@/components/StatusBadge";
+import { OrderStatus, StatusBadge, WorkflowStateBadge } from "@/components/StatusBadge";
 import { formatTimestamp } from "@/format";
 import { POLL_INTERVAL_MS } from "@/polling";
 import { EventInjector } from "./EventInjector";
@@ -112,7 +113,14 @@ export default async function RunDetailPage({
       )}
       <div className="mb-2 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold">Order {run.order_id}</h1>
-        <StatusBadge status={run.status} />
+        <span className="flex items-center gap-1.5 text-xs text-slate-500">
+          Run <StatusBadge status={run.status} />
+        </span>
+        {workflowView?.status && (
+          <span className="flex items-center gap-1.5 text-xs text-slate-500">
+            Workflow <WorkflowStateBadge state={workflowView.status.state} />
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-3 text-xs text-slate-500">
           <span>Loaded {formatTimestamp(loadedAt)}</span>
           <LiveRefresh key={run.id} runActive={isActiveRun(run)} workflowClosed={workflowView?.mode === "closed"} runStatus={run.status} />
@@ -123,13 +131,13 @@ export default async function RunDetailPage({
           ["#overview", "Overview"],
           ["#status", "Workflow status"],
           ["#controls", "Human controls"],
+          ["#instructions", "Instructions"],
+          ["#events", "Inject an event"],
           ["#memory", "Memory"],
           ["#timeline", "Timeline"],
           ["#actions", "Actions"],
           ["#tools", "Tool executions"],
           ["#final-output", "Final output"],
-          ["#instructions", "Instructions"],
-          ["#events", "Inject an event"],
         ].map(([href, label]) => (
           <a key={href} href={href} className="text-blue-700 hover:underline">
             {label}
@@ -160,48 +168,57 @@ export default async function RunDetailPage({
         <HumanControls runId={run.id} mode={workflowView?.mode ?? "inactive"} runStatus={run.status} />
       </section>
 
-      <MemorySection result={memory} />
-      <TimelineSection result={timeline} />
-      <ActionsSection result={actions} />
-      <ToolExecutionsSection result={toolExecutions} />
-      <FinalOutputSection run={run} result={finalOutput} />
 
       <section id="instructions" className="mt-6 scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="text-lg font-medium">Additional instructions for this run ({run.run_instructions.length})</h2>
-        <p className="mt-1 mb-3 text-sm text-slate-600">
-          Instructions that apply to <span className="font-medium">this order only</span>. They are separate from the
-          supervisor&apos;s base instruction, which applies to every run of that supervisor and stays unchanged. Adding an
-          instruction sends it to this run and normally wakes the supervisor to re-evaluate the order. If the run is
-          paused, the instruction is recorded but supervisor reasoning stays paused until the run is resumed.
+        <h2 className="text-lg font-medium">Instructions</h2>
+        <p className="mt-1 mb-4 text-sm text-slate-600">
+          A supervisor has one base instruction for every run it supervises. This run can add instructions of its own.
         </p>
-        {supervisor && (
-          <p className="mb-3 rounded bg-slate-50 p-3 text-xs text-slate-600">
-            <span className="font-medium text-slate-700">Supervisor base instruction (not editable here):</span>{" "}
-            {supervisor.instructions}
-          </p>
-        )}
-        {run.run_instructions.length === 0 ? (
-          <p className="text-sm text-slate-500">No additional instructions yet.</p>
+
+        {supervisor ? (
+          <div className="mb-5 rounded border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">
+              Supervisor base instruction <span className="font-normal normal-case">· read-only, applies to every run of this supervisor</span>
+            </p>
+            <p className="mt-1 text-sm whitespace-pre-line">{supervisor.instructions}</p>
+          </div>
         ) : (
-          <ol className="list-decimal space-y-2 pl-5 text-sm">
-            {run.run_instructions.map((instruction, index) => (
-              <li key={index}>
-                {instruction.text ?? JSON.stringify(instruction)}
-                {instruction.added_at && (
-                  <span className="ml-2 text-xs text-slate-500">added {formatTimestamp(instruction.added_at)}</span>
-                )}
-              </li>
-            ))}
-          </ol>
+          <div className="mb-5">
+            <SectionUnavailable what="Supervisor base instruction" error={supervisorResult.ok ? null : supervisorResult.error} />
+          </div>
         )}
-        {isActiveRun(run) ? (
-          <InstructionForm runId={run.id} />
-        ) : (
-          <p className="mt-4 border-t border-slate-100 pt-4 text-sm text-slate-600">
-            This run is <span className="font-medium">{run.status}</span> and no longer accepts instructions. Only an
-            active run can be given new ones.
+
+        <div className="border-l-4 border-purple-200 pl-4">
+          <h3 className="text-base font-medium">Additional instructions for this run ({run.run_instructions.length})</h3>
+          <p className="mt-1 mb-3 text-sm text-slate-600">
+            Instructions that apply to <span className="font-medium">this order only</span>. They are separate from the
+            supervisor&apos;s base instruction, which applies to every run of that supervisor and stays unchanged. Adding an
+            instruction sends it to this run and normally wakes the supervisor to re-evaluate the order. If the run is
+            paused, the instruction is recorded but supervisor reasoning stays paused until the run is resumed.
           </p>
-        )}
+          {run.run_instructions.length === 0 ? (
+            <p className="text-sm text-slate-500">No additional instructions yet.</p>
+          ) : (
+            <ol className="list-decimal space-y-2 pl-5 text-sm">
+              {run.run_instructions.map((instruction, index) => (
+                <li key={index}>
+                  {instruction.text ?? JSON.stringify(instruction)}
+                  {instruction.added_at && (
+                    <span className="ml-2 text-xs text-slate-500">added {formatTimestamp(instruction.added_at)}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+          {isActiveRun(run) ? (
+            <InstructionForm runId={run.id} />
+          ) : (
+            <p className="mt-4 border-t border-slate-100 pt-4 text-sm text-slate-600">
+              This run is <span className="font-medium">{run.status}</span> and no longer accepts instructions. Only an
+              active run can be given new ones.
+            </p>
+          )}
+        </div>
       </section>
 
       <div id="events" className="mt-6 scroll-mt-4">
@@ -214,6 +231,12 @@ export default async function RunDetailPage({
           </section>
         )}
       </div>
+
+      <MemorySection result={memory} />
+      <TimelineSection result={timeline} />
+      <ActionsSection result={actions} />
+      <ToolExecutionsSection result={toolExecutions} />
+      <FinalOutputSection run={run} result={finalOutput} />
 
       <p className="mt-6 text-sm text-slate-500">
         This page shows what each source reported when it was loaded ({formatTimestamp(loadedAt)}). While the run is active

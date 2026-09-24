@@ -14,14 +14,30 @@ import type {
 } from "@/api/types";
 import { Badge, type Tone } from "@/components/Badge";
 import { SectionUnavailable } from "@/components/SectionUnavailable";
+import { WorkflowStateBadge } from "@/components/StatusBadge";
 import { formatTimestamp, shortId } from "@/format";
 import type { WorkflowView } from "./controlMode";
 
-const CARD = "mt-6 rounded-lg border border-slate-200 bg-white p-5";
+const CARD = "mt-6 rounded-lg border p-5";
+const CARD_PLAIN = "border-slate-200 bg-white";
+const CARD_FINAL = "border-green-300 bg-green-50"; // the end-of-run artifact
 
-function Section({ id, title, note, children }: { id: string; title: string; note?: React.ReactNode; children: React.ReactNode }) {
+function Section({
+  id,
+  title,
+  note,
+  tone,
+  children,
+}: {
+  id: string;
+  title: string;
+  note?: React.ReactNode;
+  /** "final": the end-of-run artifact gets a green tint so it reads as the result. */
+  tone?: "final";
+  children: React.ReactNode;
+}) {
   return (
-    <section id={id} className={`${CARD} scroll-mt-4`}>
+    <section id={id} className={`${CARD} scroll-mt-4 ${tone === "final" ? CARD_FINAL : CARD_PLAIN}`}>
       <h2 className="text-lg font-medium">{title}</h2>
       {note && <p className="mt-1 mb-3 text-sm text-slate-600">{note}</p>}
       {!note && <div className="mb-3" />}
@@ -80,14 +96,11 @@ function StringList({ items, empty }: { items: unknown; empty: string }) {
 
 // ------------------------------------------------------------------ 2. workflow status
 
-const STATE_TONE: Record<string, Tone> = { reasoning: "blue", sleeping: "slate", paused: "amber", terminal: "green" };
-
 export function WorkflowStatusSection({ run, view }: { run: Run; view: WorkflowView | null }) {
   const note = (
     <>
-      The workflow&apos;s own live state, asked from Temporal (<span className="font-mono">GET /status</span>). It is not
-      the same as the run status above: a <span className="font-medium">paused</span> workflow still has run status{" "}
-      <span className="font-medium">running</span>.
+      Live state of the supervisor workflow, read from Temporal. It is not the same as the run status above: a{" "}
+      <span className="font-medium">paused</span> workflow still has run status <span className="font-medium">running</span>.
     </>
   );
   let body: React.ReactNode;
@@ -121,7 +134,7 @@ function WorkflowStatusGrid({ status }: { status: WorkflowStatus }) {
   return (
     <Dl
       rows={[
-        ["Workflow state", <Badge key="s" tone={STATE_TONE[status.state] ?? "slate"}>{status.state}</Badge>],
+        ["Workflow state", <WorkflowStateBadge key="s" state={status.state} />],
         ["Last cycle outcome", show(status.last_cycle_outcome)],
         ["Last wake reason", show(status.last_wake_reason)],
         ["Next scheduled wake", formatTimestamp(status.next_wake_at)],
@@ -394,11 +407,12 @@ export function FinalOutputSection({ run, result }: { run: Run; result: Loaded<F
     <Section
       id="final-output"
       title="Final output"
-      note={`Produced when the run completed${result.data.created_at ? ` (${formatTimestamp(result.data.created_at)})` : ""}.`}
+      tone="final"
+      note={`The supervisor's end-of-run report, produced when the run completed${result.data.created_at ? ` (${formatTimestamp(result.data.created_at)})` : ""}.`}
     >
       <Dl
         rows={[
-          ["Summary", output.summary ? show(output.summary) : "—"],
+          ["Summary", output.summary ? <span key="sum" className="text-base font-medium">{show(output.summary)}</span> : "—"],
           ["Key actions", <StringList key="a" items={output.key_actions} empty="none" />],
           ["Key learnings", <StringList key="l" items={output.key_learnings} empty="none" />],
           ["Recommendations", <StringList key="r" items={output.recommendations} empty="none" />],

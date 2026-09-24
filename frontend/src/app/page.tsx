@@ -51,11 +51,27 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <h1 className="mb-1 text-2xl font-semibold">Dashboard</h1>
-      <p className="mb-6 text-sm text-slate-500">
-        {runs.length} run{runs.length === 1 ? "" : "s"}: {active.length} active, {completed} completed
-        {finished.length - completed > 0 ? `, ${finished.length - completed} terminated or failed` : ""}.
-      </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="mb-1 text-2xl font-semibold">Dashboard</h1>
+          <p className="text-sm text-slate-500">
+            {runs.length} run{runs.length === 1 ? "" : "s"}: {active.length} active, {completed} completed
+            {finished.length - completed > 0 ? `, ${finished.length - completed} terminated or failed` : ""}.
+          </p>
+          <p className="mt-1 max-w-2xl text-xs text-slate-500">
+            Run status is the application&apos;s own record. A paused supervisor still shows as running here: open a run to
+            see its live workflow state.
+          </p>
+        </div>
+        <div className="flex gap-3 text-sm">
+          <Link href="/supervisors/new" className="rounded border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
+            Create supervisor
+          </Link>
+          <Link href="/runs/new" className="rounded bg-blue-700 px-3 py-1.5 text-white hover:bg-blue-800">
+            Start run
+          </Link>
+        </div>
+      </div>
 
       <section className="mb-8">
         <h2 className="mb-2 text-lg font-medium">Active runs ({active.length})</h2>
