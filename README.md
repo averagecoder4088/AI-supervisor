@@ -93,44 +93,62 @@ How one workflow progresses. One `OrderWorkflow` per order; the loop never spins
 
 ```mermaid
 flowchart TB
-    create(["POST /api/runs"]) --> start["start_workflow<br/>the only start path"]
+    create(["POST /api/runs"]) --> row1[("Run row saved<br/>starting")]
+    row1 --> start["start_workflow<br/>the only start path"]
+    start -.->|"start fails"| rowf[("Run row<br/>failed")]
+    start -->|"started"| row2[("Run row<br/>running")]
     start --> init["Initialize<br/>@workflow.init"]
     init -->|"1. workflow start"| reason["Reason<br/>LLM Activity"]
-    signals["Signals<br/>to the running workflow"] -->|"2. important event<br/>also instruction, resume"| reason
+    signals["Signals<br/>to the running workflow"] -->|"2. important event<br/>or instruction<br/>(not while paused)"| reason
     wait["Wait<br/>durable timer"] -->|"3. timer fires"| reason
     reason --> tool["Optional tool"]
     tool --> memory["Update memory"]
     memory --> schedule["Schedule next wake"]
     schedule --> wait
 
+    signals -.->|"Pause"| paused["Paused<br/>no reasoning, events still recorded<br/>run row stays running"]
+    paused -->|"Resume"| reason
+
     signals -.->|"event sets a<br/>terminal status"| terminal["Terminal status reached<br/>not an LLM decision"]
     reason -.->|"stale"| discard["Decision discarded<br/>order became terminal"]
     discard -.-> terminal
-    terminal --> final["Final output"]
-    final --> complete["Complete run"]
-    complete --> done(["End"])
+    terminal --> flush1["Flush queued records"]
+    flush1 --> final["Final output<br/>LLM, or deterministic fallback"]
+    final --> flush2["Flush late records"]
+    flush2 --> complete["complete_run Activity<br/>saves the final output"]
+    complete -.->|"sets"| rowc[("Run row<br/>completed")]
+    complete --> drain["Final drain<br/>persist any late Signals"]
+    drain --> done(["Workflow ends"])
     stop["Terminate<br/>client hard stop"] -.-> halted(["Workflow terminated"])
+    halted -.->|"API then sets"| rowt[("Run row<br/>terminated")]
 
     classDef sig fill:#dbeafe,stroke:#2563eb,color:#111
     classDef llmc fill:#dcfce7,stroke:#16a34a,color:#111
     classDef toolc fill:#ffedd5,stroke:#ea580c,color:#111
     classDef sleep fill:#f1f5f9,stroke:#64748b,color:#111
+    classDef pausec fill:#ede9fe,stroke:#7c3aed,color:#111
     classDef term fill:#cffafe,stroke:#0891b2,color:#111
     classDef stopc fill:#fee2e2,stroke:#dc2626,color:#111
     classDef stale fill:#fef3c7,stroke:#d97706,color:#111
+    classDef rowc fill:#fef9c3,stroke:#ca8a04,color:#111
     classDef step fill:#ffffff,stroke:#94a3b8,color:#111
     class discard stale
     class signals sig
     class reason llmc
     class tool toolc
     class wait sleep
-    class terminal,final,complete term
+    class paused pausec
+    class terminal,flush1,final,flush2,complete,drain term
     class stop,halted stopc
+    class row1,row2,rowf,rowc,rowt rowc
     class create,start,init,memory,schedule,done step
 ```
 
-Colours: blue = Signals, green = LLM reasoning, orange = a tool, grey = waiting, amber = a stale decision discarded, teal = terminal completion, red = hard stop.
+Colours: blue = Signals, green = LLM reasoning, orange = a tool, grey = waiting, purple = paused, amber = a stale decision discarded, teal = terminal handling, red = hard stop, yellow cylinders = the run's status row in PostgreSQL (an application record written around the workflow, not part of the workflow engine).
 
+- **Two lifecycles, side by side.** The Temporal workflow (indigo path) and the run's status row in PostgreSQL (yellow cylinders) are separate. The API writes `starting` before it contacts Temporal, then `running` once `start_workflow` succeeds, or `failed` if it does not. The workflow's `complete_run` Activity writes `completed`; the API writes `terminated` after a hard stop. Pause is workflow state only: the row stays `running`. If the workflow itself fails, nothing updates the row (a documented limitation).
+- **Pause is a branch, not an end.** A paused workflow does no reasoning and its timer wake is suspended, but events are still recorded; Resume returns it to the Reason step. A terminal status still ends a paused workflow.
+- **Terminal handling, in order.** Terminal status reached, flush the records Signal handlers queued, generate the final output (LLM, or the deterministic fallback), flush anything that arrived meanwhile, run `complete_run` (saves the final output and marks the run `completed`), drain any Signals that arrived during `complete_run`, and end. Reasoning never resumes, and late Signals are persisted but cannot reopen the workflow.
 - **How a workflow starts, and how Signals reach it.** The API starts a workflow in exactly one place: `POST /api/runs` calls `start_workflow` (the run row is saved as `starting` first and set to `running`, or `failed`, afterwards). Events, instructions, Pause, Resume and Interrupt are ordinary Signals sent to a workflow that is already running; if the run is not active, or Temporal reports the workflow closed or missing, the API answers `409 RUN_NOT_ACTIVE`. **No incoming event can start a workflow, and the application does not use Temporal's Signal-With-Start.** The workflow initializes its state in `@workflow.init`, before any Signal handler can run, so a Signal that arrives in the very first activation still sees the configuration; a regression test proves that exact situation using Signal-With-Start, and an important event delivered that early is consumed by the workflow-start reasoning pass instead of causing a second cycle.
 - **The three triggers** are the assignment's: workflow start, an important incoming event, a scheduled wake-up. A run instruction and Resume also wake the supervisor (not while it is paused or the order is terminal). Signal handlers only update state and queue records; the main loop persists them.
 - **Terminal is not an LLM decision.** A run ends when the order's status reaches one of the supervisor's configured *terminal order statuses*, which happens when an event arrives whose type the supervisor maps to a status (for example `delivered` to `delivered`). No further reasoning cycle runs. If the order becomes terminal while a decision is in flight, that decision is **discarded** (recorded as `discarded_terminal`) and the workflow goes straight to the final output. The final output is written by the LLM, with a deterministic fallback if that fails.
@@ -143,36 +161,42 @@ What causes reasoning, and what happens to the resulting decision. Not every eve
 
 ```mermaid
 flowchart TB
-    event["Incoming event"] --> policy{"Wake policy:<br/>eligible?"}
-    policy -->|"no"| record["Recorded only<br/>no wake"]
+    event["Incoming event<br/>always recorded"] --> policy{"Wake policy:<br/>important?"}
+    policy -->|"no: unimportant"| record["Recorded only<br/>no reasoning wake<br/>seen at the next wake-up"]
     policy -->|"yes: 2. important event"| reason
     start["1. Workflow start"] --> reason
-    timer["3. Timer"] --> reason
-    other["Instruction, Resume"] -.-> reason
+    timer["3. Scheduled timer"] --> reason
+    instr["Run instruction<br/>not while paused"] -.-> reason
+    resume["Resume<br/>after Pause"] -.-> reason
     reason["Reasoning Activity<br/>LLM returns JSON only<br/>no side effects"] --> decision["Structured decision<br/>assessment, optional tool,<br/>next wake, memory update"]
     decision --> validate{"Workflow validation<br/>and checkpoint"}
     validate -->|"valid"| apply["Apply<br/>run tool, save memory,<br/>schedule next wake"]
-    validate -->|"stale"| discard["Nothing applied<br/>no tool, no memory update<br/>events stay pending"]
-    reason -.->|"LLM failed"| discard
+    validate -->|"stale: interrupted<br/>or paused"| discard["Nothing applied<br/>no tool, no memory update<br/>events stay pending"]
+    reason -.->|"LLM failed after retries<br/>or interrupted mid-call"| discard
+    validate -.->|"stale: order terminal"| terminal["Terminal handling<br/>final output, see lifecycle diagram"]
+    apply --> alive["Workflow stays alive<br/>sleeps on a durable timer,<br/>or stays paused"]
+    discard --> alive
 
     classDef trig fill:#dbeafe,stroke:#2563eb,color:#111
     classDef llmc fill:#dcfce7,stroke:#16a34a,color:#111
     classDef okc fill:#f1f5f9,stroke:#64748b,color:#111
     classDef bad fill:#fee2e2,stroke:#dc2626,color:#111
     classDef decide fill:#fef3c7,stroke:#d97706,color:#111
-    class event,start,timer,other trig
+    classDef term fill:#cffafe,stroke:#0891b2,color:#111
+    class event,start,timer,instr,resume trig
     class reason,decision llmc
-    class record,apply okc
+    class record,apply,alive okc
     class discard bad
     class policy,validate decide
+    class terminal term
 ```
 
-Colours: blue = triggers, green = the LLM's part, amber = a decision point, grey = normal outcome, red = nothing applied.
+Colours: blue = triggers, green = the LLM's part, amber = a decision point, grey = normal outcome, red = nothing applied, teal = terminal handling.
 
-- **Trigger 2 is the "important event" case.** Every event is recorded and can update the order status; the wake policy then checks whether the event type is in the supervisor's `important_event_types` (and the supervisor is not paused, the order is not terminal, and no wake is already queued). A routine event leaves the timer untouched and is seen at the next wake-up. A run instruction and Resume take the same path into the Reasoning Activity (dotted).
+- **Trigger 2 is the "important event" case.** Every event is recorded and can update the order status; the wake policy then checks whether the event type is in the supervisor's `important_event_types` (and the supervisor is not paused, the order is not terminal, and no wake is already queued). A routine event leaves the timer untouched and is seen at the next wake-up. A run instruction and Resume are separate, extra triggers that reach the same Reasoning Activity (dotted); an instruction added while the supervisor is paused is only recorded, and Resume is what ends the pause and wakes it.
 - **The LLM only returns a decision, and has no side effects.** Its input is compact memory, new and recent events, the supervisor and run instructions and the enabled tools; it never sees the full history. The Activity checks the JSON against the strict schema and retries a bad answer; the decision holds an assessment, an optional tool with its input, the next wake in minutes, and the memory update (a situation summary and open concerns).
 - **The workflow validates before acting.** It checks the decision against three things that may have changed while the LLM was thinking: the cycle was **interrupted**, the supervisor was **paused**, or the order became **terminal**. Any of these makes the decision stale. Otherwise it re-checks the tool against the fixed registry and the supervisor's enabled tools (one tool at most, with its required inputs) and clamps the requested wake time to the supervisor's minimum and maximum. A tool request that fails this check is dropped and noted on the timeline, and the memory update and next wake still apply.
-- **"Nothing applied" is precise.** A stale decision or a failed LLM call runs no tool, saves no memory snapshot and leaves the pending events pending; the workflow records only the cycle outcome and a system note on the timeline, and schedules its next wake (or stays paused). The LLM never mutates workflow state itself.
+- **"Nothing applied" is precise.** A stale decision or a failed LLM call runs no tool, saves no memory snapshot and leaves the pending events pending; the workflow records only the cycle outcome and a system note on the timeline, and schedules its next wake (or stays paused). **A failed or interrupted cycle never ends the workflow**: it stays alive and reasons again at its next wake (the exception is a decision made stale by a terminal status, which proceeds to terminal handling). The LLM never mutates workflow state itself.
 - **Terminal is not a decision.** When the order status becomes terminal the workflow stops reasoning and produces the final output (see the lifecycle diagram).
 
 ### Representative demo flow
