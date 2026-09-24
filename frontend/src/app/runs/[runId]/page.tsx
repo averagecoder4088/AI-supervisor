@@ -8,7 +8,9 @@ import { RunNotFound } from "@/components/RunNotFound";
 import { OrderStatus, StatusBadge } from "@/components/StatusBadge";
 import { formatTimestamp } from "@/format";
 import { EventInjector } from "./EventInjector";
+import { HumanControls } from "./HumanControls";
 import { InstructionForm } from "./InstructionForm";
+import { loadControlMode } from "./controlMode";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +44,9 @@ export default async function RunDetailPage({
   } catch {
     supervisor = null;
   }
+
+  // Pause is not visible in run.status, so an active run's workflow state decides which controls to offer.
+  const controlMode = isActiveRun(run) ? await loadControlMode(run.id) : null;
 
   const fields: [string, React.ReactNode][] = [
     ["Order ID", <span key="o" className="font-medium">{run.order_id}</span>],
@@ -86,6 +91,15 @@ export default async function RunDetailPage({
             </div>
           ))}
         </dl>
+      </section>
+
+      <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+        <h2 className="text-lg font-medium">Human controls</h2>
+        <p className="mt-1 mb-4 text-sm text-slate-600">
+          Pause, resume, interrupt or terminate this run&apos;s supervisor workflow. Each request goes through the backend
+          to Temporal; the backend decides whether it is accepted.
+        </p>
+        <HumanControls runId={run.id} mode={controlMode ?? "inactive"} runStatus={run.status} />
       </section>
 
       <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">

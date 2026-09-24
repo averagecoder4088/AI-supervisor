@@ -78,3 +78,7 @@ export const EVENT_PAYLOAD_EXAMPLES: Record<string, string> = {
   no_update_for_n_hours: '{"hours": 24}',
   order_cancelled: '{"reason": "Customer request"}',
 };
+
+/** The four human controls; each is POST /api/runs/{run_id}/<control> (backend/app/api/runs.py). */
+export const CONTROLS = ["pause", "resume", "interrupt", "terminate"] as const;
+export type ControlName = (typeof CONTROLS)[number];

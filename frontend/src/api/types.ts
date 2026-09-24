@@ -82,3 +82,15 @@ export interface Accepted {
 export interface InstructionCreateBody {
   instruction: string;
 }
+
+/**
+ * The part of GET /api/runs/{run_id}/status (the workflow's get_status Query) the Human Controls use.
+ * `state` is the workflow's own: "reasoning" | "sleeping" | "paused" | "terminal". Pause is NOT visible in
+ * `runs.status` (a paused run still reads "running"), so this is the only place a pause shows.
+ */
+export interface WorkflowStatus {
+  state: string;
+  interrupt_count: number;
+  reasoning_count: number;
+  last_cycle_outcome: string | null;
+}

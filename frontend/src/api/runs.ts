@@ -1,5 +1,6 @@
 import { apiGet, apiPost } from "./client";
-import type { Accepted, EventCreateBody, InstructionCreateBody, Run, RunCreateBody } from "./types";
+import type { Accepted, EventCreateBody, InstructionCreateBody, Run, RunCreateBody, WorkflowStatus } from "./types";
+import type { ControlName } from "./vocabulary";
 
 // Mirrors the backend's ACTIVE_STATUSES (backend/app/api/runs.py); "active" is the legacy default.
 const ACTIVE_STATUSES = new Set(["starting", "running", "active"]);
@@ -39,4 +40,21 @@ export function injectEvent(runId: string, body: EventCreateBody): Promise<Accep
  */
 export function addInstruction(runId: string, body: InstructionCreateBody): Promise<Accepted> {
   return apiPost<Accepted>(`/api/runs/${encodeURIComponent(runId)}/instructions`, body);
+}
+
+/**
+ * GET /api/runs/{run_id}/status: queries the running workflow. 409 RUN_NOT_ACTIVE when the workflow is
+ * closed, 503 TEMPORAL_UNAVAILABLE when Temporal (or the worker) does not answer in time.
+ */
+export function getRunStatus(runId: string): Promise<WorkflowStatus> {
+  return apiGet<WorkflowStatus>(`/api/runs/${encodeURIComponent(runId)}/status`);
+}
+
+/**
+ * POST /api/runs/{run_id}/pause | resume | interrupt | terminate (no request body). Pause, resume and
+ * interrupt are Temporal Signals; terminate is Temporal's client-side hard stop. 202 means accepted at
+ * the workflow boundary, not yet applied.
+ */
+export function sendControl(runId: string, control: ControlName): Promise<Accepted> {
+  return apiPost<Accepted>(`/api/runs/${encodeURIComponent(runId)}/${control}`, undefined);
 }

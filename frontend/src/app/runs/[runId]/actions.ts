@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { describeFailure } from "@/api/messages";
-import { addInstruction, getRun, injectEvent } from "@/api/runs";
-import { EVENT_TYPES } from "@/api/vocabulary";
-import type { EventFormState, FormValues, InstructionFormState } from "@/components/formState";
+import { addInstruction, getRun, getRunStatus, injectEvent, sendControl } from "@/api/runs";
+import { CONTROLS, EVENT_TYPES, type ControlName } from "@/api/vocabulary";
+import type { ControlFormState, EventFormState, FormValues, InstructionFormState } from "@/components/formState";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -137,4 +137,72 @@ export async function addInstructionAction(
 
   revalidatePath(`/runs/${runId}`);
   return { status: "success", instruction, sentAt: new Date().toISOString(), visible };
+}
+
+/**
+ * A human control: browser -> this Server Action -> FastAPI (POST /api/runs/{id}/pause | resume | interrupt |
+ * terminate) -> Temporal. Which control comes from the clicked button; terminate additionally needs the
+ * explicit `confirm=yes` field that only the confirmation step of the form sends. The backend stays
+ * authoritative: nothing is faked locally, and after the request there is ONE read (no polling) of what the
+ * backend now reports.
+ */
+export async function controlAction(_previous: ControlFormState, formData: FormData): Promise<ControlFormState> {
+  const values: FormValues = { run_id: text(formData, "run_id"), control: text(formData, "control") };
+  const fail = (message: string): ControlFormState => ({
+    status: "error",
+    title: "Nothing was sent",
+    message,
+    code: null,
+    httpStatus: null,
+    values,
+    at: new Date().toISOString(),
+  });
+
+  const runId = (values.run_id as string).trim();
+  if (!UUID.test(runId)) return fail("This page's run ID is not valid, so nothing was sent.");
+  if (!(CONTROLS as readonly string[]).includes(values.control as string)) {
+    return fail("Unknown control. Use one of the Pause, Resume, Interrupt or Terminate buttons.");
+  }
+  const control = values.control as ControlName;
+  if (control === "terminate" && text(formData, "confirm") !== "yes") {
+    return fail("Terminate is irreversible and needs an explicit confirmation. Use the Terminate button, then confirm.");
+  }
+
+  let accepted;
+  try {
+    accepted = await sendControl(runId, control);
+  } catch (error) {
+    return { status: "error", ...describeFailure(error, control), values, at: new Date().toISOString() };
+  }
+  if (!accepted || accepted.accepted !== true) {
+    return {
+      status: "error",
+      title: "Unexpected response from the backend",
+      message: `The backend answered, but did not confirm that it accepted the ${control} request. Refresh this page to check the run's state before trying again.`,
+      code: "MALFORMED_RESPONSE",
+      httpStatus: null,
+      values,
+      at: new Date().toISOString(),
+    };
+  }
+
+  // One read of the backend's resulting state. Terminate is recorded on the run by the backend itself;
+  // the others are Signals, so the workflow's own state (the observation endpoint) is what changes.
+  let workflowState: string | null = null;
+  let interruptCount: number | null = null;
+  let runStatus: string | null = null;
+  try {
+    if (control === "terminate") {
+      runStatus = (await getRun(runId)).status;
+    } else {
+      const workflow = await getRunStatus(runId);
+      workflowState = workflow.state;
+      interruptCount = workflow.interrupt_count;
+    }
+  } catch {
+    // The request was accepted; only the follow-up read failed. The banner says the state is not known yet.
+  }
+
+  revalidatePath(`/runs/${runId}`);
+  return { status: "success", control, sentAt: new Date().toISOString(), workflowState, interruptCount, runStatus };
 }
