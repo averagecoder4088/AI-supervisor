@@ -1,4 +1,4 @@
-"""LLM client interface and the OpenAI adapter.
+"""LLM client interface and the OpenAI-SDK adapter (OpenAI Responses API and Gemini).
 
 An LLM client does one thing: given prompts and a JSON schema, return the
 model's raw JSON text. Validation happens in ``app.llm.schemas``; retry
@@ -17,6 +17,13 @@ DEFAULT_TIMEOUT_SECONDS = 45.0
 # Internal cap, not a tuning knob: reasoning models spend output tokens on thinking too.
 MAX_OUTPUT_TOKENS = 4096
 MAX_DETAIL_CHARS = 300
+
+# Gemini through Google's OpenAI-compatible endpoint. That endpoint serves Chat Completions but
+# NOT the Responses API (POST .../openai/responses answers 404), so provider "gemini" uses
+# chat.completions with the same strict JSON schema; everything else is shared.
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_REASONING_EFFORT = "low"
 
 
 class LLMError(Exception):
@@ -49,7 +56,11 @@ class LLMClient(Protocol):
 
 
 class OpenAILLMClient:
-    """OpenAI Responses API adapter behind the ``LLMClient`` protocol (decision B7).
+    """OpenAI-SDK adapter behind the ``LLMClient`` protocol (decision B7).
+
+    provider="openai" (default): the OpenAI Responses API. provider="gemini": Google's
+    OpenAI-compatible Chat Completions endpoint (``base_url``), model gemini-3.6-flash and
+    ``reasoning_effort`` by default, selected by ``LLM_PROVIDER=gemini``.
 
     It returns the model's raw JSON text and translates provider failures into
     the three error types above; validation stays in ``app.llm.schemas`` and
@@ -72,20 +83,43 @@ class OpenAILLMClient:
         model: Optional[str] = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         http_client: Optional[Any] = None,
+        provider: str = "openai",
+        base_url: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> None:
         self._api_key = (api_key or "").strip() or None
         self._model = (model or "").strip() or None
         self._timeout_seconds = timeout_seconds
+        self._provider = provider
+        self._base_url = (base_url or "").strip() or None
+        self._reasoning_effort = (reasoning_effort or "").strip() or None
         self._http_client = http_client  # tests inject an httpx client with a mock transport
         self._sdk_client: Optional[Any] = None
 
     @classmethod
     def from_settings(cls, settings: "Settings") -> "OpenAILLMClient":
-        key = settings.llm_api_key.get_secret_value() if settings.llm_api_key is not None else None
-        return cls(api_key=key, model=settings.llm_model, timeout_seconds=settings.llm_timeout_seconds)
+        def secret(value: Any) -> Optional[str]:
+            return value.get_secret_value() if value is not None else None
+
+        if settings.llm_provider == "gemini":
+            return cls(
+                api_key=secret(settings.gemini_api_key),
+                model=settings.llm_model or GEMINI_MODEL,
+                timeout_seconds=settings.llm_timeout_seconds,
+                provider="gemini",
+                base_url=settings.llm_base_url or GEMINI_BASE_URL,
+                reasoning_effort=settings.llm_reasoning_effort or GEMINI_REASONING_EFFORT,
+            )
+        return cls(
+            api_key=secret(settings.llm_api_key),
+            model=settings.llm_model,
+            timeout_seconds=settings.llm_timeout_seconds,
+            base_url=settings.llm_base_url,
+        )
 
     def __repr__(self) -> str:
-        return f"OpenAILLMClient(model={self._model!r}, configured={self._configured})"
+        provider = f"provider={self._provider!r}, " if self._provider != "openai" else ""
+        return f"OpenAILLMClient({provider}model={self._model!r}, configured={self._configured})"
 
     @property
     def _configured(self) -> bool:
@@ -100,13 +134,28 @@ class OpenAILLMClient:
         json_schema: Dict[str, Any],
     ) -> str:
         if not self._configured:
-            raise LLMNotConfiguredError("OpenAI LLM is not configured: set LLM_API_KEY and LLM_MODEL.")
+            needed = "GEMINI_API_KEY" if self._provider == "gemini" else "LLM_API_KEY and LLM_MODEL"
+            raise LLMNotConfiguredError(f"LLM is not configured (provider {self._provider}): set {needed}.")
         try:
             import openai  # lazy: an unconfigured or test environment never imports the SDK
         except ImportError:
             raise LLMNotConfiguredError("The 'openai' package is not installed.") from None
 
         try:
+            if self._provider == "gemini":
+                response = await self._sdk(openai).chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {"name": schema_name, "schema": json_schema, "strict": True},
+                    },
+                    reasoning_effort=self._reasoning_effort,
+                )
+                return _chat_text(response)
             response = await self._sdk(openai).responses.create(
                 model=self._model,
                 instructions=system_prompt,
@@ -125,6 +174,7 @@ class OpenAILLMClient:
         if self._sdk_client is None:
             self._sdk_client = openai.AsyncOpenAI(
                 api_key=self._api_key,
+                base_url=self._base_url,
                 timeout=self._timeout_seconds,
                 max_retries=0,  # Temporal owns retries; the SDK default of 2 would nest them
                 http_client=self._http_client,
@@ -141,6 +191,9 @@ class OpenAILLMClient:
             return LLMProviderError("Could not connect to the LLM provider.")
         if isinstance(err, openai.APIStatusError):
             status = err.status_code
+            if status == 400 and "api key" in str(err).lower():
+                # Gemini reports a missing/invalid key as HTTP 400 INVALID_ARGUMENT, not 401.
+                return LLMAuthenticationError("LLM provider rejected the credentials (HTTP 400).")
             if status in (408, 409, 429) or status >= 500:
                 return LLMProviderError(f"LLM provider temporarily failed (HTTP {status}).")
             # Any other 4xx (bad request, unknown model, rejected schema): retrying cannot help.
@@ -155,7 +208,7 @@ class OpenAILLMClient:
         return _redact(" - ".join(parts) or "no detail", self._api_key)[:MAX_DETAIL_CHARS]
 
 
-_KEY_LIKE = re.compile(r"sk-[A-Za-z0-9_\-*.]+")
+_KEY_LIKE = re.compile(r"sk-[A-Za-z0-9_\-*.]+|AIza[0-9A-Za-z_\-]{20,}")
 
 
 def _redact(text: str, api_key: Optional[str]) -> str:
@@ -175,4 +228,20 @@ def _response_text(response: Any) -> str:
             refusal = getattr(part, "refusal", None)
             if isinstance(refusal, str) and refusal:
                 return refusal
+    return ""
+
+
+def _chat_text(response: Any) -> str:
+    """Chat Completions counterpart of ``_response_text``: the first choice's JSON text, else its
+    refusal, else nothing. A truncated answer (finish_reason "length") is invalid JSON and fails
+    strict parsing like every other unusable output."""
+    for choice in getattr(response, "choices", None) or []:
+        message = getattr(choice, "message", None)
+        content = getattr(message, "content", None)
+        if isinstance(content, str) and content:
+            return content
+        refusal = getattr(message, "refusal", None)
+        if isinstance(refusal, str) and refusal:
+            return refusal
+        break
     return ""

@@ -23,10 +23,18 @@ class Settings(BaseSettings):
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
 
-    # LLM provider (OpenAI Responses API, decision B7). Real values live only in the
-    # git-ignored backend/.env; with no key or model the LLM client is "not configured".
+    # LLM provider. Real values live only in the git-ignored backend/.env; with no key the LLM
+    # client is "not configured" and every reasoning cycle fails cleanly.
+    #   openai: OpenAI Responses API (decision B7), key LLM_API_KEY, model LLM_MODEL.
+    #   gemini: Google's OpenAI-compatible Chat Completions endpoint through the same openai SDK,
+    #           key GEMINI_API_KEY; model, base URL and reasoning effort default to
+    #           gemini-3.6-flash / the Gemini endpoint / "low" (see app.llm.client).
+    llm_provider: Literal["openai", "gemini"] = "openai"
     llm_api_key: Optional[SecretStr] = None
+    gemini_api_key: Optional[SecretStr] = None
     llm_model: Optional[str] = None
+    llm_base_url: Optional[str] = None
+    llm_reasoning_effort: Optional[str] = None
     # Per-request client timeout; keep it below the 60 s reasoning Activity timeout.
     llm_timeout_seconds: float = Field(default=45.0, gt=0)
 

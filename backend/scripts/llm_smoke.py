@@ -1,24 +1,30 @@
-"""Manual live check of the OpenAI adapter (decision B7). NOT part of the pytest suite.
+"""Manual live check of the real LLM provider: Gemini. NOT part of the pytest suite.
 
-Sends one real reasoning request and one real final-output request with the
-application's own prompts and strict schemas, and reports whether the model's
-answers pass the same local validation the workflow uses. It is the only way to
-confirm that the configured model ID exists and that the provider accepts the
-generated JSON schemas.
+Sends one real reasoning request and one real final-output request through the runtime's own
+LLM client (the OpenAI SDK against Google's OpenAI-compatible endpoint, gemini-3.6-flash,
+reasoning_effort "low") with the application's own prompts and strict schemas, and reports
+whether the answers pass the same local validation the workflow uses. It uses 2 Gemini calls.
 
-Needs LLM_API_KEY and LLM_MODEL (git-ignored backend/.env or the environment):
+Needs LLM_PROVIDER=gemini and GEMINI_API_KEY (git-ignored backend/.env or the environment).
+Only safe information is printed: never the key.
 
-    PYTHONPATH=backend .venv/bin/python backend/scripts/llm_smoke.py
+    .venv/bin/python backend/scripts/llm_smoke.py
 
-Exit code: 0 both checks passed, 1 a check failed, 2 not configured.
+Exit code: 0 both checks passed, 1 a check failed, 2 not configured (no request is made).
 """
 
 import asyncio
+import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+BACKEND = Path(__file__).resolve().parents[1]
+os.chdir(BACKEND)  # Settings look for .env / backend/.env relative to the working directory
+sys.path.insert(0, str(BACKEND))
 
 from app.config import get_settings
-from app.llm.client import LLMError, OpenAILLMClient
+from app.llm.client import GEMINI_BASE_URL, GEMINI_MODEL, GEMINI_REASONING_EFFORT, LLMError, OpenAILLMClient
 from app.llm.prompts import (
     FINAL_OUTPUT_SYSTEM_PROMPT,
     REASONING_SYSTEM_PROMPT,
@@ -68,8 +74,21 @@ FINAL_CONTEXT = FinalOutputInput(
 
 
 async def main() -> int:
-    client = OpenAILLMClient.from_settings(get_settings())
-    print(f"client: {client!r}")
+    settings = get_settings()
+    if settings.llm_provider != "gemini":
+        print(f"NOT CONFIGURED: LLM_PROVIDER is {settings.llm_provider!r}; set LLM_PROVIDER=gemini. No request was made.")
+        return 2
+    key = settings.gemini_api_key.get_secret_value().strip() if settings.gemini_api_key is not None else ""
+    if not key:
+        print("NOT CONFIGURED: GEMINI_API_KEY is required (put it in the git-ignored backend/.env). No request was made.")
+        return 2
+    client = OpenAILLMClient.from_settings(settings)
+    print(
+        f"provider=gemini model={settings.llm_model or GEMINI_MODEL} "
+        f"endpoint={settings.llm_base_url or GEMINI_BASE_URL} "
+        f"reasoning_effort={settings.llm_reasoning_effort or GEMINI_REASONING_EFFORT} "
+        f"timeout={settings.llm_timeout_seconds}s max_retries=0"
+    )
     checks = [
         ("reasoning decision", REASONING_SYSTEM_PROMPT, build_reasoning_user_prompt(REASONING_CONTEXT),
          REASONING_SCHEMA_NAME, reasoning_decision_json_schema(), parse_reasoning_decision),
@@ -88,8 +107,6 @@ async def main() -> int:
             failed = True
         except LLMError as err:
             print(f"[FAIL] {label}: {type(err).__name__}: {err}")
-            if type(err).__name__ == "LLMNotConfiguredError" and "not configured" in str(err):
-                return 2
             failed = True
         else:
             print(f"[ OK ] {label}: valid -> {parsed}")
