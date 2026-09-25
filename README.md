@@ -23,13 +23,12 @@ A proof of concept for a long-running AI supervisor that oversees **one order** 
 6. [Environment configuration](#environment-configuration)
 7. [Running the application](#running-the-application)
 8. [Using the UI](#using-the-ui)
-9. [Live demo simulator](#live-demo-simulator)
-10. [API overview](#api-overview)
-11. [Testing and verification](#testing-and-verification)
-12. [What is real vs mocked](#what-is-real-vs-mocked)
-13. [Limitations](#limitations)
-14. [Troubleshooting](#troubleshooting)
-15. [Demo walkthrough](#demo-walkthrough)
+9. [API overview](#api-overview)
+10. [Testing and verification](#testing-and-verification)
+11. [What is real vs mocked](#what-is-real-vs-mocked)
+12. [Limitations](#limitations)
+13. [Troubleshooting](#troubleshooting)
+14. [Demo walkthrough](#demo-walkthrough)
 
 ---
 
@@ -49,7 +48,7 @@ The responsibilities are split on purpose:
 | **Next.js** | The UI. The browser only talks to Next.js; Server Components read from FastAPI and Server Actions write to it. |
 
 - The next wake time is part of the LLM's decision and a run closes when the order reaches a terminal status, so there is no separate schedule or close tool.
-- The mock rows are created by the simulator and the tests, or seeded by hand (see [Setup](#setup), step 7). The API and the UI do not create them.
+- The mock rows are created by the test suite's simulator, or seeded by hand (see [Setup](#setup), step 7). The API and the UI do not create them.
 
 ### System architecture
 
@@ -305,8 +304,7 @@ Legend: blue = an event or instruction entering the workflow, green = the superv
 │   ├── scripts/
 │   │   ├── runtime_validation.py real Temporal runtime validation (FakeLLM), see Testing
 │   │   ├── llm_smoke.py          live Gemini smoke check (2 real calls)
-│   │   ├── gemini_e2e.py         Temporal + LLM end-to-end scenario (real Gemini or --mock-llm)
-│   │   └── simulate.py           live demo simulator: change the mock world and send the event
+│   │   └── gemini_e2e.py         Temporal + LLM end-to-end scenario (real Gemini or --mock-llm)
 │   ├── app/
 │   │   ├── main.py               FastAPI app factory and entrypoint
 │   │   ├── config.py             settings from environment / .env
@@ -406,27 +404,28 @@ See [Running the application](#running-the-application), terminal 1.
 
 ### 7. Mock operational data for the tools
 
-The tools act on `mock_orders`, `mock_shipments` and `mock_customer_messages`. Only the simulator and the test factories create those rows; **starting a run from the UI does not**.
+The tools act on `mock_orders`, `mock_shipments` and `mock_customer_messages`. Only the test suite's simulator and factories create those rows; **starting a run from the UI does not**.
 
 - For an order with no mock row, every tool call is recorded as a **failed** tool execution (`Order not found`). The supervisor still runs and can reason about the failure.
 - Events injected in the UI are Signals only. **They do not change these tables**; a tool reads whatever the rows say.
 - The order status on the run page comes from the supervisor's own event-to-status mapping, which is separate from `mock_orders.status`.
 
-Two ways to create the rows **before** the run starts, with the same order id:
-
-- **The [live demo simulator](#live-demo-simulator):** `python backend/scripts/simulate.py place DEMO-1001`. Its later commands change the mock world and send the matching event together.
-- **By hand**, for a UI-only demo:
+To see tools succeed, seed the orders by hand **before** starting their runs, using the same order ids (this seeds the two demo orders):
 
 ```bash
 psql order_supervisor <<'SQL'
-INSERT INTO mock_orders (id, order_id, status, customer_id)
-VALUES (gen_random_uuid(), 'DEMO-1001', 'shipped', 'CUSTOMER-1001');
-INSERT INTO mock_shipments (id, order_id, shipment_id, status, tracking_number)
-VALUES (gen_random_uuid(), 'DEMO-1001', 'SHIP-1001', 'in_transit', 'TRACK-1001');
+INSERT INTO mock_orders (id, order_id, status, customer_id) VALUES
+  (gen_random_uuid(), 'DEMO-2001', 'shipped', 'CUSTOMER-2001'),
+  (gen_random_uuid(), 'DEMO-2002', 'shipped', 'CUSTOMER-2002');
+INSERT INTO mock_shipments (id, order_id, shipment_id, status, tracking_number) VALUES
+  (gen_random_uuid(), 'DEMO-2001', 'SHIP-2001', 'in_transit', 'TRACK-2001'),
+  (gen_random_uuid(), 'DEMO-2002', 'SHIP-2002', 'in_transit', 'TRACK-2002');
 SQL
 ```
 
-Adjust the `psql` connection to match your `DATABASE_URL`. To make the world move by hand, update the rows, for example `UPDATE mock_shipments SET status = 'delayed', delay_reason = 'Carrier capacity shortage' WHERE order_id = 'DEMO-1001';`
+Adjust the `psql` connection to match your `DATABASE_URL`. To make the world move, update the rows yourself, for example `UPDATE mock_shipments SET status = 'delayed', delay_reason = 'Carrier capacity shortage' WHERE order_id = 'DEMO-2001';`
+
+To remove a demo order and its run afterwards: `DELETE FROM runs WHERE order_id = 'DEMO-2001'; DELETE FROM mock_orders WHERE order_id = 'DEMO-2001';` (the run's history and the mock shipment are deleted with them). This does not stop a live workflow; Terminate the run in the UI first.
 
 ---
 
@@ -512,30 +511,6 @@ Open `http://localhost:3000`.
 
 ---
 
-## Live demo simulator
-
-The tools read the mock tables, and events injected in the UI do not change those tables. `backend/scripts/simulate.py` closes that gap for a demo. Each command changes the mock world first and **then** sends the matching event to the running API, so the tools read exactly the state the event describes. It drives the same `ExternalWorld` that the S1 to S5 scenario tests use, against your live stack.
-
-Needs PostgreSQL (`DATABASE_URL` from `backend/.env`) and the API on `http://127.0.0.1:8000` (change with `--api URL`). Start the run in the UI between `place` and `created`.
-
-```bash
-python backend/scripts/simulate.py place   DEMO-2001            # mock order row, status created; no event
-python backend/scripts/simulate.py created DEMO-2001            # event order_created
-python backend/scripts/simulate.py pay     DEMO-2001            # order -> payment_confirmed, event payment_confirmed
-python backend/scripts/simulate.py ship    DEMO-2001            # shipment created, order -> shipped, event shipment_created
-python backend/scripts/simulate.py delay   DEMO-2001            # shipment and order -> delayed, event shipment_delayed
-python backend/scripts/simulate.py message DEMO-2001 "Where is my order?"   # inbound message row, event customer_message_received
-python backend/scripts/simulate.py deliver DEMO-2001            # shipment and order -> delivered, event delivered (ends the run)
-```
-
-- **Other endings:** `fail-payment` (created to payment_failed) and `cancel` (only before a shipment exists). `delay`, `fail-payment` and `cancel` accept `--reason`.
-- **`show ORDER_ID`** prints the run and the mock rows (order and shipment status, `escalated`, customer messages). It is the quickest way to see that a tool changed the world.
-- **`reset ORDER_ID --yes`** deletes that order's run and mock rows. It does **not** stop a live workflow; Terminate the run in the UI first.
-- **Steps must go in order.** `pay` needs `created`, `ship` needs `payment_confirmed`, `delay` needs `shipped`, and `deliver` needs `shipped` or `delayed`. A step out of order is refused with the reason, and a command that needs a run says so if none exists.
-- The UI's **Inject an event** panel is unchanged: it only sends the event.
-
----
-
 ## API overview
 
 FastAPI serves interactive docs at `http://127.0.0.1:8000/docs`. Errors use `{"error": <message>, "code": <CODE>}`. A `202` means the request was accepted at the workflow boundary, not yet processed.
@@ -612,7 +587,7 @@ Not verified with real Gemini: interrupt, terminate, `send_customer_update` and 
 ## Limitations
 
 - **Proof of concept.** No authentication, no multi-tenancy, no production hardening. The backend has no CORS configuration on purpose.
-- **Mocked operations.** The UI does not drive the mock operational state: an order started from the UI has no mock rows until you create them (`simulate.py place`, or Setup step 7), and events injected in the UI do not change them. Use the simulator to change the world and send the event together.
+- **Mocked operations.** The UI does not drive the mock operational state: an order started from the UI has no mock rows until you seed them (Setup, step 7), and events injected in the UI do not change them.
 - **LLM dependency.** Without a working key every cycle fails cleanly and the final output comes from the fallback. Only the Gemini path was validated live.
 - **Simple wake policy.** A fixed, rule-based list per supervisor. No LLM classifier, no agent-written wake guidance, no special handling of unknown event types.
 - **One tool per reasoning cycle**, from a fixed set of four.
@@ -635,7 +610,7 @@ Not verified with real Gemini: interrupt, terminate, `send_customer_update` and 
   - No usable LLM key is configured. Set `LLM_PROVIDER` and `GEMINI_API_KEY` in `backend/.env` and restart the **worker**.
   - Or the provider answered `HTTP 503` or `429` (overload or quota). Nothing is broken: no tool ran and the workflow reasons again at its next wake. To retry sooner, inject an important event.
 - **After restarting Temporal, old runs still say `running`.** Their workflows are gone. Start new runs.
-- **Tool executions show `failed` with `Order not found` or `Shipment not found`.** The order has no mock rows. Run `python backend/scripts/simulate.py place ORDER_ID` before starting the run (or seed by hand, Setup step 7).
+- **Tool executions show `failed` with `Order not found` or `Shipment not found`.** The order has no mock rows. Seed them before starting the run (Setup, step 7).
 - **Backend tests fail to connect.** Check that PostgreSQL is running, `DATABASE_URL` is correct and `alembic upgrade head` was applied.
 - **`npm run dev` creates two agent-rules files in `frontend/`.** The Next.js 16 development server writes them on first start; they are not part of the project and can be deleted.
 - **Ports.** Temporal 7233 (gRPC) and 8233 (UI), FastAPI 8000, Next.js 3000.
@@ -644,16 +619,17 @@ Not verified with real Gemini: interrupt, terminate, `send_customer_update` and 
 
 ## Demo walkthrough
 
-A path through the product with the orders `DEMO-2001` (full lifecycle) and `DEMO-2002` (terminated). A real Gemini key is needed to see decisions (an ended run with a fallback final output does not count as a real-LLM demo). The LLM chooses the tools, so exact wording varies between runs. The outside world is driven by the [live demo simulator](#live-demo-simulator), and events that need no world change are sent from the UI. The full scene-by-scene recording script is [`DOCS/WALKTHROUGH_SCRIPT.md`](DOCS/WALKTHROUGH_SCRIPT.md).
+A path through the product with the orders `DEMO-2001` (full lifecycle) and `DEMO-2002` (terminated). Everything after the setup happens in the browser. A real Gemini key is needed to see decisions (an ended run with a fallback final output does not count as a real-LLM demo). The LLM chooses the tools, so exact wording varies between runs. The full recording script is [`DOCS/WALKTHROUGH_SCRIPT.md`](DOCS/WALKTHROUGH_SCRIPT.md).
 
 1. **Configure the LLM.** In the git-ignored `backend/.env` set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY=...` (see [Environment configuration](#environment-configuration)). Start the four processes as in [Running the application](#running-the-application), restarting the **worker** after any `.env` change, and open `http://localhost:3000`.
-2. **Create a supervisor** with all four tools; the default important events plus `customer_message_received`; wake interval minimum 1, default 1 and maximum 2 minutes (so a scheduled wake-up happens within the demo; the UI default is 60); `delivered` as a terminal status and the event to status mapping `delivered` to `delivered`.
-3. **Place the order, then start the run.** `python backend/scripts/simulate.py place DEMO-2001`, then start a run for `DEMO-2001` in the UI. The first reasoning cycle (workflow start) appears; the supervisor typically calls a read tool such as `get_order_status`, which succeeds against the mock order, and the workflow then sleeps on a durable timer.
-4. **Routine events do not wake the supervisor.** In the UI's **Inject an event** panel send `order_created`, then run `simulate.py pay` and `simulate.py ship` for `DEMO-2001`. They are recorded on the timeline and the cycle count does not change.
-5. **Scheduled wake-up.** Wait for the timer: a new cycle appears with the wake reason `scheduled_wakeup`.
-6. **Add a run instruction** in the UI, for example "If the shipment is delayed, escalate it immediately with priority high. If the customer writes in, reply with a short update using send_customer_update." The supervisor wakes with the reason `instruction_added`.
-7. **Important event.** Run `simulate.py delay DEMO-2001`. It wakes the supervisor (`important_event`), which is expected to call `escalate_shipment`. The Tool executions panel shows `success`, and `simulate.py show DEMO-2001` shows `escalated=True`.
-8. **Customer message.** In the UI's event panel send `customer_message_received` with `{"message": "Where is my order?"}`. The supervisor is expected to call `send_customer_update`; `simulate.py show DEMO-2001` lists the outbound reply.
-9. **Human controls.** Pause (events recorded, no reasoning; inject one by hand in the UI's event panel), Resume (wake reason `resume`), Interrupt.
-10. **Finish the run.** `simulate.py deliver DEMO-2001`. The order reaches its terminal status and the run completes. The Final output panel shows the summary, key actions, key learnings and recommendations, and says the **LLM** wrote it (`source: llm`). If it says the fallback wrote it, the LLM call failed; that is not a real-LLM result.
-11. **Terminate a second run.** `simulate.py place DEMO-2002`, start a run for it, then use Terminate and confirm. The workflow stops for good and no final output is written.
+2. **Seed the mock world** with the SQL in [Setup](#setup), step 7. Starting a run does not seed anything.
+3. **Create a supervisor** with all four tools; the default important events plus `customer_message_received`; wake interval minimum 1, default 1 and maximum 2 minutes (so a scheduled wake-up happens within the demo; the UI default is 60); `delivered` as a terminal status and the event-to-status mapping `delivered` to `delivered`.
+4. **Start a run** for `DEMO-2001`. The first reasoning cycle (workflow start) appears; the supervisor typically calls a read tool such as `get_order_status`, which succeeds against the mock order, and the workflow then sleeps on a durable timer.
+5. **Routine events do not wake the supervisor.** In the **Inject an event** panel send `order_created`, `payment_confirmed` and `shipment_created`. They are recorded on the timeline and the cycle count does not change.
+6. **Scheduled wake-up.** Wait for the timer: a new cycle appears with the wake reason `scheduled_wakeup`.
+7. **Add a run instruction**, for example "For future shipment delays, prioritize escalation and keep the customer updated." The supervisor wakes with the reason `instruction_added`.
+8. **Important event.** Inject `shipment_delayed`. It wakes the supervisor (`important_event`), which is expected to call `escalate_shipment`; the Tool executions panel shows `success`. The injected event does not change the mock tables, so the mock shipment stays `in_transit` unless you update it by hand.
+9. **Customer message.** Inject `customer_message_received` with `{"message": "Where is my order?"}`. The supervisor is expected to call `send_customer_update`.
+10. **Human controls.** Pause (events are recorded but there is no reasoning), Resume (wake reason `resume`), Interrupt.
+11. **Finish the run.** Inject `delivered`. The order reaches its terminal status and the run completes. The Final output panel shows the summary, key actions, key learnings and recommendations, and says the **LLM** wrote it (`source: llm`). If it says the fallback wrote it, the LLM call failed; that is not a real-LLM result.
+12. **Terminate a second run.** Start a run for `DEMO-2002`, then use Terminate and confirm. The workflow stops for good and no final output is written.

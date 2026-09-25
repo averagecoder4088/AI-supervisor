@@ -1,13 +1,65 @@
 # Order Supervisor — Final Walkthrough Script
 
-This is the script for the assignment video. It runs about 10.5 minutes and is recorded live on the real stack: real Temporal, real worker, real Gemini (`gemini-3.1-flash-lite`) and real PostgreSQL. Two orders are used: `DEMO-2001` runs the whole lifecycle and `DEMO-2002` is terminated at the end.
+This is the script for the assignment video. It runs about 11 minutes and is recorded live on the real stack: real Temporal, real worker, real Gemini (`gemini-3.1-flash-lite`) and real PostgreSQL. Everything on camera happens in the browser; you never touch a terminal while recording. Two orders are used: `DEMO-2001` runs the whole lifecycle and `DEMO-2002` is terminated at the end.
 
-## How the demo is driven
+**Two browser tabs:** the app at http://localhost:3000 and the Temporal UI at http://localhost:8233.
 
-- **You work in the UI.** It creates the supervisor, starts runs, injects events, adds instructions and uses the human controls.
-- **The simulator is the outside world.** `backend/scripts/simulate.py` changes the mock tables (a shipment appears, is delayed, is delivered) and then sends the matching event to the run, so the tools always read the same state the event describes.
-- **Two sources of events, on purpose.** `pay`, `ship`, `delay` and `deliver` come from the simulator because they change the world. `order_created`, `customer_message_received` and `no_update_for_n_hours` are sent from the UI's event panel.
-- **The AI is never scripted.** It decides what to do, when to sleep and which tool to call, so wording and tool choices vary from take to take.
+**Rules while recording**
+- Say what the screen shows. Don't claim the AI will pick a particular tool; if it picks something else, describe what it actually did.
+- The AI decides the tools, so your wording may differ from the lines below. That is fine.
+- Pause about 2 seconds on each important result so viewers can read it.
+
+---
+
+## Before you record (not on camera)
+
+**1. Start the four terminals, in this order,** waiting for each to be ready.
+
+```
+Terminal 1 — Temporal (wait for "Temporal UI: http://localhost:8233")
+cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR"
+source .venv/bin/activate
+python backend/scripts/runtime_validation.py server
+
+Terminal 2 — Worker (prints nothing; that is normal)
+cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR/backend"
+source ../.venv/bin/activate
+python -m app.temporal.worker
+
+Terminal 3 — API (wait for "Application startup complete")
+cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR/backend"
+source ../.venv/bin/activate
+uvicorn app.main:app --port 8000
+
+Terminal 4 — Frontend (wait for "Ready")
+cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR/frontend"
+npm run dev
+```
+
+The API connects to Temporal only once, at startup, so start Temporal first. Terminal 1 downloads a Temporal binary the first time it runs.
+
+**2. Check Gemini.** `backend/.env` needs `LLM_PROVIDER=gemini` and `GEMINI_API_KEY`. Leave `LLM_MODEL` and `LLM_REASONING_EFFORT` unset, so the model is `gemini-3.1-flash-lite` and no reasoning effort is sent. Run `python backend/scripts/llm_smoke.py` once.
+
+**3. Seed the mock data the tools read** (once, in any terminal). Without these rows every tool call fails with `Order not found`.
+
+```
+psql order_supervisor <<'SQL'
+INSERT INTO mock_orders (id, order_id, status, customer_id) VALUES
+  (gen_random_uuid(), 'DEMO-2001', 'shipped', 'CUSTOMER-2001'),
+  (gen_random_uuid(), 'DEMO-2002', 'shipped', 'CUSTOMER-2002');
+INSERT INTO mock_shipments (id, order_id, shipment_id, status, tracking_number) VALUES
+  (gen_random_uuid(), 'DEMO-2001', 'SHIP-2001', 'in_transit', 'TRACK-2001'),
+  (gen_random_uuid(), 'DEMO-2002', 'SHIP-2002', 'in_transit', 'TRACK-2002');
+SQL
+```
+
+**4. Check the dashboard** shows no active runs.
+
+**5. Rehearse once** with other order IDs (for example `TEST-1` and `TEST-2`, seeded the same way). To clean up a rehearsal order, stop its run in the UI first, then:
+
+```
+psql order_supervisor -c "DELETE FROM runs WHERE order_id IN ('TEST-1','TEST-2'); DELETE FROM mock_orders WHERE order_id IN ('TEST-1','TEST-2');"
+```
 
 ---
 
@@ -16,257 +68,229 @@ This is the script for the assignment video. It runs about 10.5 minutes and is r
 | # | Section | Time | Length |
 |---|---|---|---|
 | 0 | Opening | 0:00 to 0:20 | 20 s |
-| 1 | Create the Supervisor | 0:20 to 1:20 | 60 s |
-| 2 | Start the Run | 1:20 to 2:20 | 60 s |
-| 3 | Events That Do Not Wake the AI, Then a Scheduled Wake | 2:20 to 3:50 | 90 s |
-| 4 | Add an Instruction to the Live Run | 3:50 to 4:35 | 45 s |
-| 5 | An Important Event and Tool Execution: Escalation | 4:35 to 5:35 | 60 s |
-| 6 | A Customer Message: Second Tool | 5:35 to 6:20 | 45 s |
-| 7 | Inside Temporal | 6:20 to 6:50 | 30 s |
-| 8 | Human Controls: Pause, Resume, Interrupt | 6:50 to 7:50 | 60 s |
-| 9 | Finish the Order | 7:50 to 8:20 | 30 s |
-| 10 | Final Summary, Learnings and Feedback | 8:20 to 9:20 | 60 s |
-| 11 | Terminate a Second Run | 9:20 to 10:00 | 40 s |
-| 12 | Closing | 10:00 to 10:30 | 30 s |
+| 1 | Create the supervisor | 0:20 to 1:20 | 60 s |
+| 2 | Start the order run | 1:20 to 2:20 | 60 s |
+| 3 | The agent goes to sleep | 2:20 to 2:50 | 30 s |
+| 4 | Send events into the workflow | 2:50 to 3:40 | 50 s |
+| 5 | The agent wakes up on its timer | 3:40 to 4:30 | 50 s |
+| 6 | Add an instruction to the live run | 4:30 to 5:15 | 45 s |
+| 7 | Important event and tool execution | 5:15 to 6:15 | 60 s |
+| 8 | Customer message, second tool | 6:15 to 7:00 | 45 s |
+| 9 | Look inside Temporal (optional) | 7:00 to 7:30 | 30 s |
+| 10 | Pause, resume, interrupt | 7:30 to 8:30 | 60 s |
+| 11 | Finish the order | 8:30 to 9:00 | 30 s |
+| 12 | Final summary, learnings, feedback | 9:00 to 10:00 | 60 s |
+| 13 | Terminate a second run | 10:00 to 10:40 | 40 s |
+| 14 | Closing | 10:40 to 11:10 | 30 s |
 
-Total: about 10:30. Times are targets for a clean single take; the wait for the scheduled wake in section 3 can be cut when editing.
-
----
-
-## Before you hit record (not on camera)
-
-**1. Clear the old test runs.** Two ghost runs from earlier testing (`DEMO-1001`, `DEMO-1002`) are still marked `running`. They would show as active on the dashboard.
-
-```bash
-cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR" && source .venv/bin/activate
-python backend/scripts/simulate.py reset DEMO-1001 --yes
-python backend/scripts/simulate.py reset DEMO-1002 --yes
-```
-
-**2. Open five terminals, and start 1 to 4 in this order.**
-
-```
-Terminal 1 — Temporal
-cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR"
-source .venv/bin/activate
-python backend/scripts/runtime_validation.py server
-
-Terminal 2 — Worker
-cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR/backend"
-source ../.venv/bin/activate
-python -m app.temporal.worker
-
-Terminal 3 — API
-cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR/backend"
-source ../.venv/bin/activate
-uvicorn app.main:app --port 8000
-
-Terminal 4 — Frontend
-cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR/frontend"
-npm run dev
-
-Terminal 5 — Simulator (used from section 2 on)
-cd "/Users/sanyamvasan/Desktop/PROJECT SUPERVISOR"
-source .venv/bin/activate
-```
-
-Wait for terminal 1 to be up before starting the API. The API connects to Temporal only once, at startup. Terminal 1 downloads a Temporal binary the first time it runs, so run it once before recording.
-
-**3. Check Gemini.** `backend/.env` needs `LLM_PROVIDER=gemini` and `GEMINI_API_KEY`. Leave `LLM_MODEL` and `LLM_REASONING_EFFORT` unset, so the model is `gemini-3.1-flash-lite` and no reasoning effort is sent. Run `python backend/scripts/llm_smoke.py` once. Gemini has returned 503 and 429 errors before.
-
-**4. Rehearse once** with different order IDs, then reset them with `simulate.py reset ORDER --yes`.
-
-**5. Arrange the screen.**
-- Browser tab 1: the app, http://localhost:3000.
-- Browser tab 2: the Temporal UI, http://localhost:8233.
-- Browser tab 3: the system-architecture diagram in the README on GitHub.
+Times are targets for a clean single take. The wait for the scheduled wake in section 5 can be cut when editing.
 
 ---
 
-## 0. Opening — 0:00 to 0:20 (20 seconds)
+## 0. Opening — 0:00 to 0:20
 
 **Show:** the dashboard, with no active runs.
 
 **Say:**
 
-"This is my Order Supervisor. The system uses one long-running Temporal workflow per order. A supervisor defines the monitoring behavior and the tools it may use, and events, timers and human instructions can wake the workflow for another reasoning cycle."
+"This is my Order Supervisor. A supervisor monitors an order through a long-running Temporal workflow. Events and timers can wake the workflow for another reasoning cycle, while tools perform actions and the system keeps a history of what happened."
 
-**Tip:** don't explain every technology yet. The architecture diagram is optional here; if you want it, show README tab 3 for 10 seconds.
+**Tip:** don't explain every technology yet.
 
 ---
 
-## 1. Create the Supervisor — 0:20 to 1:20 (60 seconds)
+## 1. Create the supervisor — 0:20 to 1:20
 
 **Show:** Create supervisor, then fill in:
 
 | Field | Value |
 |---|---|
-| Name | `Shipment Supervisor` (it already exists, so this creates **v3**) |
-| Base instruction | `Monitor the order until it is delivered. Escalate serious shipment delays and keep the customer informed.` |
-| Available tools | all four ticked |
-| Events that wake the supervisor immediately | keep `shipment_delayed`, `payment_failed`, `refund_requested`, `order_cancelled`, and **also tick `customer_message_received`** |
+| Name | `Shipment Supervisor` (it already exists, so this becomes **v3**) |
+| Description | `Monitors shipment progress and handles delivery issues.` |
+| Base instruction | `Monitor the order until it is delivered. If the shipment is delayed, escalate it with high priority. Keep the customer informed about important shipment issues.` |
+| Available tools | leave all four ticked |
+| Events that wake the supervisor immediately | keep `shipment_delayed`, `payment_failed`, `refund_requested`, `order_cancelled` ticked, and **also tick `customer_message_received`** |
 | Minimum / default / maximum wake (min) | `1` / `1` / `2` |
 | Terminal order statuses | `delivered, cancelled` |
-| Advanced: status set by each event | leave the defaults (`delivered` sets `delivered`) |
+| Advanced: status set by each event | leave the defaults |
 
 Click **Create supervisor**. You land on Start run with it selected.
 
 **Say:**
 
-"A supervisor is a reusable template: the base instruction, the tools it may use, which events wake it immediately, how long it may sleep, and which order statuses end a run. Those wake settings control how aggressively the agent wakes up. I set the sleep to one or two minutes only so you can see a scheduled wake-up in this video. In production it would be hours. Supervisors are versioned and immutable: creating one with an existing name makes the next version, so a run's configuration can never change underneath it."
+"A supervisor configuration defines how the order is monitored: the base instruction, which tools are available, which events wake it immediately, how long it may sleep, and which order statuses end the run. I set the sleep to one or two minutes only so you can see a scheduled wake-up in this video. In production it would be hours. Supervisors are versioned and immutable, so creating one with an existing name makes a new version."
 
-**Tip:** don't reuse the existing `Shipment Supervisor` v2. It has a maximum sleep of 1440 minutes, so the AI could ask to sleep for an hour and you would never see a scheduled wake. It also doesn't list `customer_message_received` as an important event.
+**Why these values:** a maximum wake of 2 minutes makes sure the scheduled wake happens on camera; the default of 60 would not. `customer_message_received` must be ticked or the customer message in section 8 will not wake the AI.
 
 ---
 
-## 2. Start the Run — 1:20 to 2:20 (60 seconds)
+## 2. Start the order run — 1:20 to 2:20
+
+**Show:** on Start run:
+- Order ID `DEMO-2001`
+- Supervisor: `Shipment Supervisor` (the new version)
+- Run-specific instructions: `Prioritize resolving shipment issues quickly and keep the customer informed.`
+
+Click **Start run**. On the run page point at, in order: Workflow status, Reasoning cycles, Memory, Timeline, Tool executions. Then show the Temporal UI tab: `order-DEMO-2001` is Running.
+
+**Say:**
+
+"Starting the run creates a long-running Temporal workflow for this order, named `order-DEMO-2001`. The workflow begins with an initial reasoning cycle."
+
+**Expect:** cycle count 1, last wake reason `workflow_start`. The AI usually calls a read tool such as `get_order_status`, shown as `success` under Tool executions.
+
+---
+
+## 3. The agent goes to sleep — 2:20 to 2:50
+
+**Show:** wait for the first reasoning cycle to finish. Point at the state changing to `sleeping` and **Next scheduled wake** showing a time about a minute away. Pause 3 seconds.
+
+**Say:**
+
+"After the reasoning cycle, the supervisor doesn't keep calling the model. It goes to sleep and waits for its next wake trigger. This scheduled wake is a durable Temporal timer, so nothing is holding a thread while it waits."
+
+---
+
+## 4. Send events into the workflow — 2:50 to 3:40
+
+**Show:** in **Inject an event**, send these three, one at a time, and show each on the Timeline:
+
+1. `order_created` with `{"customer_id": "CUSTOMER-2001"}`
+2. `payment_confirmed` with `{"amount": 49.99, "currency": "USD"}`
+3. `shipment_created` with `{"shipment_id": "SHIP-2001", "tracking_number": "TRACK-2001"}`
+
+Point out that the reasoning cycle count did not change.
+
+**Say:**
+
+"Events enter the running workflow as Temporal signals. Every event is recorded on the timeline, but only the event types I marked as important wake the supervisor immediately. These are routine updates, so the supervisor keeps sleeping."
+
+---
+
+## 5. The agent wakes up on its timer — 3:40 to 4:30
+
+**Show:** wait for the scheduled wake, about a minute after the first cycle. While you wait, point at the Memory and Timeline panels. When the timer fires, point at the reasoning cycle count going up, **Last wake reason** `scheduled_wakeup`, and the Memory and Timeline updating.
+
+**Say (while waiting):** "Memory is a small summary the AI rewrites each cycle. The timeline is the full history."
+
+**Say (when it wakes):** "The timer fired, so the workflow woke and ran another reasoning cycle. The workflow was alive the whole time, but the model only runs when there is a reason to wake it."
+
+**Tip:** cut the waiting when you edit.
+
+---
+
+## 6. Add an instruction to the live run — 4:30 to 5:15
+
+**Show:** find **Add an instruction for this run** and type:
+
+`For future shipment delays, prioritize escalation and keep the customer updated.`
+
+Click **Add instruction**. Show it under Instructions, then the new reasoning cycle if one appears (last wake reason `instruction_added`).
+
+**Say:**
+
+"I can also guide a run that is already live. The instruction becomes part of the run's context and wakes the supervisor so it reconsiders the situation."
+
+---
+
+## 7. Important event and tool execution — 5:15 to 6:15
+
+**Show:** inject `shipment_delayed` with `{"delay_reason": "Carrier capacity shortage"}`. Show it on the Timeline. The supervisor should wake at once (last wake reason `important_event`). Open **Tool executions** and point at the new row: the tool name, its input and its result.
+
+**Say:**
+
+"Shipment delayed is an important event for this supervisor, so it wakes the workflow immediately. The model returns a structured decision, and the tool itself runs separately as a Temporal Activity." Pointing at the tool row: "The result is saved as part of the run history."
+
+**Expect:** usually `escalate_shipment` with status `success`.
+
+**Important:** if the AI chose a different tool, or none, say what it actually did, for example "Here the supervisor decided to ...". Don't say it was guaranteed. Injected events don't change the mock tables, so don't claim the shipment record changed.
+
+---
+
+## 8. Customer message, second tool — 6:15 to 7:00
+
+**Show:** inject `customer_message_received` with `{"message": "Where is my order?"}`. Show the event on the Timeline, the new reasoning cycle, and Tool executions.
+
+**Say:**
+
+"The same workflow reacts to another important event. Here the customer wrote in, so the supervisor can use the customer-update tool to reply."
+
+**Expect:** usually `send_customer_update` with status `success`. If it chose something else, describe what the screen shows.
+
+---
+
+## 9. Look inside Temporal — 7:00 to 7:30 (optional)
+
+**Show:** the Temporal UI tab. Open `order-DEMO-2001` and its event history. Point at the signals, the timers and the activities.
+
+**Say:**
+
+"This is the same run inside Temporal. My events arrived as signals, every sleep is a timer, and each model call, tool call and database write is an activity. The workflow itself stays deterministic."
+
+**Tip:** skip this section if you are running long.
+
+---
+
+## 10. Pause, resume, interrupt — 7:30 to 8:30
+
+**Show:** back in the app, on the run page:
+
+1. Click **Pause**. Point at the state showing `paused`.
+2. Inject `no_update_for_n_hours` with `{"hours": 24}`. Show it on the Timeline and that the cycle count does not change.
+3. Click **Resume**. Show a new cycle with last wake reason `resume`.
+4. Click **Interrupt**. Show the interrupt count going up.
+
+**Say:**
+
+"Pause keeps the workflow alive but stops reasoning. The event is still recorded but wakes nothing. Resume makes the supervisor re-evaluate everything that arrived meanwhile. Interrupt drops a reasoning cycle in progress without ending the run."
+
+**Tip:** Interrupt only has something to drop while a cycle is running, so the count may just go up. Say that plainly if it happens.
+
+---
+
+## 11. Finish the order — 8:30 to 9:00
+
+**Show:** inject `delivered` with `{"shipment_id": "SHIP-2001"}`. Show the run reaching its terminal state (workflow state `terminal`, run status `completed`).
+
+**Say:**
+
+"The order has reached a configured terminal status, delivered. That comes from the supervisor's event mapping, not from the model. The workflow stops its normal reasoning loop and generates the final output for the run."
+
+---
+
+## 12. Final summary, learnings and feedback — 9:00 to 10:00
+
+**Show:** scroll to **Final output** and slowly point at the Summary, Key actions, Key learnings and Recommendations (the feedback). Check that the source line says the LLM wrote it. Go to the dashboard and show `DEMO-2001` under "Completed and ended runs". Open it again to show the Timeline, Actions and Tool executions. Pause 3 seconds on the final output.
+
+**Say:**
+
+"The run is completed and produced a final report: a summary, the important actions taken, key learnings and recommendations, which is the feedback. The run also keeps its timeline, memory, actions and tool executions, so I can inspect what the supervisor did afterwards."
+
+**If the source says `fallback`:** the model call failed and this is not a real-model result. Retake from section 11, or the whole run.
+
+---
+
+## 13. Terminate a second run — 10:00 to 10:40
 
 **Show:**
-1. In terminal 5: `python backend/scripts/simulate.py place DEMO-2001` (the customer places the order: a mock order row with status `created`, no event).
-2. In the app, Start run: order ID `DEMO-2001`, supervisor `Shipment Supervisor` (v3), run-specific instruction `Prioritize speed over cost.` Click **Start run**.
-3. On the run page, point at Workflow status and Tool executions.
-4. Switch to the Temporal UI, open `order-DEMO-2001`, point at the timer.
+1. Go to Start run: order ID `DEMO-2002`, the same supervisor. Click **Start run**.
+2. On the run page click **Terminate…** and confirm.
+3. Show the run as terminated, with no controls and an empty Final output.
+4. Optional: in the Temporal UI tab, show `order-DEMO-2002` as Terminated.
 
 **Say:**
 
-"One run per order, and one Temporal workflow named `order-DEMO-2001`. The first reasoning cycle fires on workflow start. The supervisor looks at the order, may call a read tool, then goes to sleep. That sleep is a real Temporal timer. Nothing holds a thread while it waits."
-
-**Expect:** cycle count 1, last wake reason `workflow_start`. The supervisor usually calls `get_order_status`, shown as `success`. Then the state becomes `sleeping` and **Next scheduled wake** shows a time about a minute away.
+"Terminate is a hard stop for the Temporal workflow. Unlike pause or interrupt, the workflow does not continue after it, and no final report is produced."
 
 ---
 
-## 3. Events That Do Not Wake the AI, Then a Scheduled Wake — 2:20 to 3:50 (90 seconds)
+## 14. Closing — 10:40 to 11:10
 
-**Show:**
-1. In the UI's **Inject an event** panel, send `order_created` with `{"customer_id": "CUSTOMER-2001"}`.
-2. In terminal 5: `python backend/scripts/simulate.py pay DEMO-2001`.
-3. In terminal 5: `python backend/scripts/simulate.py ship DEMO-2001`.
-4. Wait, talking over the Memory and Timeline panels, until the timer fires.
+**Show:** the dashboard with the completed run and the terminated run.
 
 **Say:**
 
-"Every incoming event is recorded, but not every event wakes the AI. The wake policy is a simple rule: only the event types I marked important wake it. These are routine, so they go on the timeline and the supervisor keeps sleeping. Memory is a small summary the AI rewrites each cycle, and the timeline is the full history. Nothing happens until the durable timer fires… and there it is."
-
-**Expect:** the three events on the Timeline with the cycle count still at 1. Then a new cycle with last wake reason `scheduled_wakeup`, and the Memory panel updates.
-
-**Tip:** the wait is about a minute. Fill it by explaining memory versus timeline, or cut it when editing.
-
----
-
-## 4. Add an Instruction to the Live Run — 3:50 to 4:35 (45 seconds)
-
-**Show:** **Add an instruction for this run**, type:
-
-`If the shipment is delayed, escalate it immediately with priority high. If the customer writes in, reply with a short update using send_customer_update.`
-
-Click **Add instruction**.
-
-**Say:**
-
-"I can steer a run that is already live. The instruction becomes part of the run's context and wakes the supervisor to take it into account."
-
-**Expect:** the instruction listed under Instructions, then a new cycle with last wake reason `instruction_added`.
-
----
-
-## 5. An Important Event and Tool Execution: Escalation — 4:35 to 5:35 (60 seconds)
-
-**Show:** in terminal 5: `python backend/scripts/simulate.py delay DEMO-2001`. Then, once the cycle finishes: `python backend/scripts/simulate.py show DEMO-2001`.
-
-**Say:**
-
-"The carrier reports a delay. The simulator sets the shipment and the order to delayed and then sends the `shipment_delayed` event. This one is important, so the supervisor wakes immediately. The AI only proposes a decision. The workflow validates it and runs the tool as a Temporal Activity, and the result is recorded."
-
-**Expect:** last wake reason `important_event`. Tool executions shows `escalate_shipment` as `success`. `show` prints the shipment as `delayed` with `escalated=True`.
-
----
-
-## 6. A Customer Message: Second Tool — 5:35 to 6:20 (45 seconds)
-
-**Show:** in the UI's event panel, send `customer_message_received` with `{"message": "Where is my order?"}`. Then run `python backend/scripts/simulate.py show DEMO-2001`.
-
-**Say:**
-
-"The customer writes in. That is also an important event, and my instruction told the supervisor to reply. Tools that change the world get exactly one attempt, so a retry can never send the customer two messages."
-
-**Expect:** an important-event wake, then `send_customer_update` as `success`. `show` lists one outbound message.
-
----
-
-## 7. Inside Temporal — 6:20 to 6:50 (30 seconds)
-
-**Show:** the Temporal UI, `order-DEMO-2001`, event history. Point at the Signals, the timers and the Activities.
-
-**Say:**
-
-"This is the whole run in Temporal. My events arrived as Signals, every sleep is a timer, and every LLM call, tool call and database write is an Activity. The workflow itself stays deterministic."
-
----
-
-## 8. Human Controls: Pause, Resume, Interrupt — 6:50 to 7:50 (60 seconds)
-
-**Show:**
-1. **Pause**. In the event panel, send `no_update_for_n_hours` with `{"hours": 24}`.
-2. **Resume**.
-3. **Interrupt**.
-
-**Say:**
-
-"Pause keeps the workflow alive but stops reasoning. The event is still recorded, but it wakes nothing. Resume makes the supervisor re-evaluate everything that arrived while it was paused. Interrupt drops the reasoning cycle in progress without ending the run."
-
-**Expect:** while paused the state is `paused`, the cycle count does not change and the event is on the timeline. After Resume, a cycle with last wake reason `resume`. After Interrupt the interrupt count goes up.
-
-**Tip:** Interrupt has no cycle to drop unless one is running, so it will probably just increase the count. Say so rather than hiding it. Interrupt has not been checked with a real LLM.
-
----
-
-## 9. Finish the Order — 7:50 to 8:20 (30 seconds)
-
-**Show:** in terminal 5: `python backend/scripts/simulate.py deliver DEMO-2001`.
-
-**Say:**
-
-"The order is delivered. A run ends when the order reaches a terminal status, and that comes from the supervisor's event mapping, not from the LLM. The workflow stops reasoning and writes the final report."
-
----
-
-## 10. Final Summary, Learnings and Feedback — 8:20 to 9:20 (60 seconds)
-
-**Show:** the run page after it completes. Scroll to **Final output**. Then go to the dashboard and show `DEMO-2001` under completed runs, and open it again to show the Timeline, Actions and Tool executions.
-
-**Say:**
-
-"The run is completed. The final report has a summary, the important actions taken, key learnings and recommendations, which is the feedback. It was written by the LLM from the recorded history. Everything the supervisor did is here: the memory, the timeline, every action and every tool call."
-
-**Expect:** workflow state `terminal`, run status `completed`, and a Final output panel with summary, key actions, key learnings and recommendations.
-
-**Check:** the source line must say the **LLM** wrote it. If it says `fallback`, the LLM call failed and this is not a real-LLM result. Retake it.
-
----
-
-## 11. Terminate a Second Run — 9:20 to 10:00 (40 seconds)
-
-**Show:**
-1. In terminal 5: `python backend/scripts/simulate.py place DEMO-2002`.
-2. Start a run for `DEMO-2002` with the same supervisor.
-3. Click **Terminate…** and confirm.
-4. Show the Temporal UI: `order-DEMO-2002` is terminated.
-
-**Say:**
-
-"Terminate is Temporal's hard stop. It is not Pause and not Interrupt. The workflow does not continue, and no final report is produced."
-
-**Expect:** the run shows terminated, the controls are gone, and Final output is empty.
-
----
-
-## 12. Closing — 10:00 to 10:30 (30 seconds)
-
-**Show:** the dashboard with the completed and the terminated run.
-
-**Say:**
-
-"One Temporal workflow per order, events as Signals, a wake policy that decides when the AI runs, tools through Activities, a compact memory plus a full timeline, and a final report. The tools are mocked over PostgreSQL and the wake policy is rule-based, and the README lists those limitations. The backend has 313 tests, and the code and documentation are on GitHub."
+"This shows the full supervisor lifecycle: creating a supervisor, starting an order run, sending events, sleeping and waking through Temporal, executing tools, guiding a live run with instructions, controlling the workflow, and finally producing a summary with learnings and feedback. The tools are mocked over PostgreSQL and the wake policy is rule-based, and the README lists these limitations."
 
 ---
 
@@ -274,16 +298,13 @@ Click **Add instruction**.
 
 | Problem | Fix |
 |---|---|
-| Timeline says "Reasoning failed ... HTTP 503 or 429" | Gemini is overloaded or out of quota. Nothing is broken. Wait a minute and inject an important event to retry, or retake. |
+| Timeline says "Reasoning failed ... HTTP 503 or 429" | Gemini is overloaded or out of quota. Nothing is broken. Wait a minute, send another important event, or retake. |
 | "Reasoning failed" with no HTTP code | Wrong or empty `GEMINI_API_KEY`. Fix `backend/.env` and restart the worker (terminal 2). |
-| Tool executions show `Order not found` | The run was started before `simulate.py place ORDER`. Place the order, or use a fresh order ID. |
-| The AI did not pick `escalate_shipment` or `send_customer_update` | The LLM chooses the tools. Repeat the step, or reword the run instruction to name the tool. |
-| `refused: cannot ...` from the simulator | Steps must go in order: `place`, `pay`, `ship`, then `delay` and `deliver`. `simulate.py show ORDER` shows where the order is. |
-| `no run exists for ORDER` | Start the run in the UI first. |
-| `could not reach the API` | The API (terminal 3) is not running on port 8000. |
-| "Workflow status unavailable" or `TEMPORAL_UNAVAILABLE` | The API started before Temporal. Start Temporal, then restart the API. |
-| No scheduled wake in section 3 | Check the supervisor's wake interval is 1 to 2 minutes and that the worker (terminal 2) is running. |
-| Order ID refused as already existing | One run per order ID. Use a new ID. |
+| Tool executions show `Order not found` | The mock rows are missing. Run the seed SQL and use a fresh order ID. |
+| The AI didn't use the tool you expected | Describe what it did, or repeat the event. |
+| "Workflow status unavailable" or `TEMPORAL_UNAVAILABLE` | The API started before Temporal. Start Temporal, then restart terminal 3. |
+| The scheduled wake never happens | Check the supervisor's wake settings were 1 / 1 / 2 and that the worker (terminal 2) is running. |
+| "Order ID already exists" | One run per order ID. Use a new ID. |
 
 ---
 
@@ -291,9 +312,10 @@ Click **Add instruction**.
 
 - [ ] Creating a supervisor config — section 1
 - [ ] Starting an order run — section 2
-- [ ] Sending events into the workflow — sections 3, 5, 6, 8, 9
-- [ ] The agent going to sleep and waking up — sections 2 and 3 (the timer, `scheduled_wakeup`), 5 (`important_event`), 8 (`resume`)
-- [ ] Tool execution — sections 2, 5, 6
-- [ ] Adding extra instructions to a live run — section 4
-- [ ] Interrupting or terminating a run — sections 8 (interrupt) and 11 (terminate)
-- [ ] Final summary, learnings and feedback — section 10
+- [ ] Sending events into the workflow — sections 4, 7, 8, 10, 11
+- [ ] The agent going to sleep — section 3
+- [ ] The agent waking up — sections 5, 6, 7
+- [ ] Tool execution — sections 2, 7, 8
+- [ ] Adding extra instructions to a live run — section 6
+- [ ] Interrupting or terminating a run — sections 10 and 13
+- [ ] Final summary, learnings and feedback — section 12
