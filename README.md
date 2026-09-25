@@ -38,7 +38,7 @@ The responsibilities are split on purpose:
 | **Activities** | All non-deterministic or external work: LLM calls, PostgreSQL writes and tool execution. |
 | **PostgreSQL** | Application and history data: supervisors, runs, events, timeline, actions, tool executions, memory snapshots, final output, plus the mock operational tables the tools act on. |
 | **LLM** | Structured reasoning: it returns a JSON decision. It has **no side effects**; the workflow validates the decision and runs any tool itself, through an Activity. |
-| **Tools** | Four mocked operational tools that read and change mock order, shipment and message rows in PostgreSQL. Those rows are created by the simulator and the tests, or seeded by hand (see [Setup](#setup)); the API and the UI do not create them. |
+| **Tools** | Four mocked operational tools that read and change mock order, shipment and message rows in PostgreSQL: two read-oriented (`get_order_status`, `get_shipment_status`) and two with side effects (`escalate_shipment`, `send_customer_update`). The next wake time is part of the LLM's structured decision and a run closes when the order reaches a terminal status, so there is no separate schedule or close tool. Those rows are created by the simulator and the tests, or seeded by hand (see [Setup](#setup)); the API and the UI do not create them. |
 | **FastAPI** | A thin boundary over PostgreSQL and the Temporal client. |
 | **Next.js** | The UI. The browser only ever talks to Next.js; Server Components read from FastAPI and Server Actions write to it. |
 
@@ -266,7 +266,7 @@ Legend: blue = an event or instruction entering the workflow, green = the superv
 - **Why the wake policy is rule-based.** "Signal" means *something happened*; the wake policy decides *whether the LLM should wake now* from the supervisor's list of important event types. It is deterministic and cheap, and every event is recorded whatever the answer.
 - **Why the tools are mocked.** The assignment does not require real integrations. The four tools read and change mock order, shipment and customer-message tables in PostgreSQL, so their effects are real, observable and testable.
 - **Why FakeLLM exists.** It makes the workflow testable and repeatable without a network or an API key: the scenario tests and the runtime validation use scripted decisions.
-- **Why Gemini is optional.** The application runs without a key (reasoning then fails cleanly, see [Limitations](#limitations)). Gemini is the real provider that was validated with a live smoke test; it is reached through Google's OpenAI-compatible endpoint with the `openai` SDK.
+- **Why Gemini is optional.** The application runs without a key (reasoning then fails cleanly, see [Limitations](#limitations)). Gemini is the real provider that was validated with a live smoke test and a full real run through Temporal; it is reached through Google's OpenAI-compatible endpoint with the `openai` SDK.
 - **Why no multi-agent, LangGraph or RAG.** The assignment scopes these out. One bounded reasoning call per wake, with compact memory and a fixed set of tools, is enough and is easier to reason about, test and observe.
 
 ---
@@ -510,7 +510,7 @@ FastAPI serves interactive docs at `http://127.0.0.1:8000/docs`. All errors use 
 
 Common error codes: `VALIDATION_ERROR` (400), `RUN_NOT_FOUND` (404), `RUN_ALREADY_EXISTS` (409), `RUN_NOT_ACTIVE` (409), `TEMPORAL_UNAVAILABLE` (503).
 
-The ten event types are `order_created`, `payment_confirmed`, `payment_failed`, `shipment_created`, `shipment_delayed`, `delivered`, `refund_requested`, `customer_message_received`, `no_update_for_n_hours` and `order_cancelled`.
+The ten event types are `order_created`, `payment_confirmed`, `payment_failed`, `shipment_created`, `shipment_delayed`, `delivered`, `refund_requested`, `customer_message_received`, `no_update_for_n_hours` and `order_cancelled`. All are accepted through the API and the UI; nothing generates `no_update_for_n_hours` automatically (the durable scheduled wake-ups already cover the no-update case).
 
 ---
 
@@ -544,11 +544,14 @@ python backend/scripts/runtime_validation.py cleanup        # only if a previous
 # Live Gemini check: 2 real requests through the runtime's own LLM client (needs GEMINI_API_KEY)
 python backend/scripts/llm_smoke.py
 
+# Real Gemini + real Temporal end to end (about 4 real Gemini calls, about 3 minutes, needs GEMINI_API_KEY)
+python backend/scripts/gemini_e2e.py
+
 # Production worker + real Temporal, driven against a local OpenAI-compatible stub (no quota)
 python backend/scripts/gemini_e2e.py --mock-llm
 ```
 
-What has been verified: the backend suite (313 passing); the real Temporal runtime validation of S1 with the scripted FakeLLM; the live Gemini smoke test (reasoning decision and final output both valid); and a `--mock-llm` rehearsal of the full pipeline with the production worker. The frontend flows (creation, event injection, instructions, human controls, observation and polling) were exercised in a real browser against the real stack with FakeLLM. The frontend has no automated test suite of its own.
+What has been verified: the backend suite (313 passing); the real Temporal runtime validation of S1 with the scripted FakeLLM; the live Gemini smoke test (reasoning decision and final output both valid); a `--mock-llm` rehearsal of the full pipeline with the production worker; and the real Gemini + Temporal end-to-end run (see the table below). The frontend flows (creation, event injection, instructions, human controls, observation and polling) were exercised in a real browser against the real stack with FakeLLM. The frontend has no automated test suite of its own.
 
 ---
 
@@ -562,8 +565,8 @@ What has been verified: the backend suite (313 passing); the real Temporal runti
 | Next.js UI | **Real.** |
 | Operational tools | **Mocked.** Four tools that read and change mock order, shipment and customer-message tables in PostgreSQL; nothing external is contacted. The mock rows are created by the simulator and tests or seeded by hand, not by the UI. |
 | FakeLLM | **Deterministic test double.** Used by the tests and the runtime validation; not selectable through configuration. |
-| Gemini | **Real provider, smoke-tested.** A live smoke test passed (2 real calls: a reasoning decision and a final output, both valid). |
-| Full Gemini + Temporal end to end | **Not verified.** The `--mock-llm` rehearsal proves the pipeline and the exact HTTP request shape, but not Gemini itself; a complete real run with a real key has not been performed. |
+| Gemini | **Real provider, smoke-tested.** A live smoke test passed (2 real calls: a reasoning decision and a final output, both valid). A later re-run of the smoke script returned HTTP 503 and then 429 (provider load and quota) and did not pass; the script has no retries, unlike the workflow. |
+| Full Gemini + Temporal end to end | **Verified.** Run on 2026-09-25 with `backend/scripts/gemini_e2e.py` against the real Gemini API (model `gemini-3.6-flash`, the production worker, a real Temporal dev server, FastAPI and PostgreSQL, no injected LLM): a real decision on workflow start, an important event and a durable timer, real tool Activities that changed the mock world, and a final output written by Gemini (`source: llm`, not the fallback). The first attempt hit transient Gemini HTTP 503 responses: one reasoning cycle failed cleanly after its retries and the next scheduled wake recovered, so the script's strict clean-run check failed; a second attempt passed with no hard failures. A further real run that used the README's own seed SQL and added an instruction to the live run also passed (its driver is kept outside the repository). The `--mock-llm` rehearsal remains available for a no-quota check of the pipeline and the HTTP request shape. |
 | OpenAI provider | Implemented; covered by offline tests only. |
 
 ---
@@ -572,14 +575,14 @@ What has been verified: the backend suite (313 passing); the real Temporal runti
 
 - **Proof of concept.** No authentication, no multi-tenancy and no production hardening. The backend has no CORS configuration on purpose: the browser talks only to Next.js.
 - **Mocked operations.** No real commerce, shipping or messaging integrations. The mock operational state is not driven by the UI: an order started from the UI has no mock rows until you seed them (Setup, step 7), and injected events do not change them, so tools on an unseeded order fail with `Order not found`.
-- **LLM dependency.** Real supervisor decisions need a provider key. Without one every reasoning cycle fails cleanly and the final output comes from the deterministic fallback. Only the Gemini path has been validated against a live provider.
+- **LLM dependency.** Real supervisor decisions need a provider key. Without one every reasoning cycle fails cleanly and the final output comes from the deterministic fallback. Only the Gemini path has been validated against a live provider, and Gemini can answer with transient 503 or 429 errors: the affected reasoning cycle then fails cleanly ("Reasoning failed after retries; no tool executed") and the supervisor tries again at its next wake.
 - **Simple wake policy.** Whether an event wakes the supervisor is a fixed, rule-based list per supervisor. There is no LLM classifier, no agent-written wake guidance and no special handling of unknown events (event types are a fixed, validated vocabulary).
 - **One tool per reasoning cycle**, from a fixed set of four.
 - **Long histories.** The workflow does not use `continue_as_new`; it keeps only compact state (for example the 20 most recent events) but a very long-running workflow's history is not rolled over.
 - **Temporal dev server is in-memory.** Restarting it loses running workflows, while PostgreSQL still shows their runs as `running`. Use a Temporal server with persistence for anything beyond a demo.
 - **PostgreSQL and Temporal are not one transaction.** Creating a run saves the row, then starts the workflow, then records the outcome; failures between the steps are reported honestly (a run that failed to start keeps its order id).
 - **UI scope.** The supervisor picker only lists supervisors used by existing runs (the backend has no supervisor-list endpoint). Live updates re-render the whole page every 3 seconds; if the backend goes down the page shows an error panel and a half-typed form draft is lost. The timeline is oldest first with no filtering or pagination. Only the desktop layout was reviewed.
-- **Verification scope.** The frontend has no automated tests; the full Gemini + Temporal end-to-end has not been run (see the table above).
+- **Verification scope.** The frontend has no automated tests and was exercised against the real stack with FakeLLM, not with a real LLM in the browser. The real Gemini + Temporal end to end was run through the API and scripts (see the table above). The OpenAI provider has not been validated live.
 
 ---
 
@@ -590,6 +593,7 @@ What has been verified: the backend suite (313 passing); the real Temporal runti
 - **A run stays `running` but nothing happens.** The worker is not running. Start it in terminal 2; Temporal delivers the queued work when it connects.
 - **Runs exist but show no supervisor decisions; the timeline shows "Reasoning failed".** No usable LLM key is configured (see [Which LLM configuration to use](#which-llm-configuration-to-use)). Set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` in `backend/.env` and restart the **worker**.
 - **After restarting Temporal, old runs still say `running`.** The dev server keeps state in memory only, so those workflows are gone. Start new runs.
+- **The timeline shows "Reasoning failed after retries ... HTTP 503" or "HTTP 429".** Gemini was overloaded or rate-limited. Nothing is broken: no tool ran, the workflow stays alive and reasons again at its next scheduled wake (or on the next important event). Wait a minute and, if needed, inject an important event to trigger another cycle.
 - **Tool executions show `failed` with `Order not found` (or `Shipment not found`).** The order has no mock operational rows. Seed them as described in [Setup](#setup), step 7, before starting the run.
 - **Backend tests fail to connect.** Check that PostgreSQL is running, `DATABASE_URL` is correct and `alembic upgrade head` has been applied.
 - **`npm run dev` creates `frontend/AGENTS.md` and `frontend/CLAUDE.md`.** The Next.js 16 development server writes these two files on first start. They are not part of the project and can be deleted.
@@ -599,14 +603,16 @@ What has been verified: the backend suite (313 passing); the real Temporal runti
 
 ## Demo walkthrough
 
-A short path through the product (a real LLM key is needed to see decisions, see [Environment configuration](#environment-configuration)):
+A short path through the product using the demo order `DEMO-1001` (a real Gemini key is needed to see decisions; ended runs with a fallback final output do not count as a real-LLM demo). In this walkthrough the LLM chooses the tools; nothing is scripted, so the exact wording of decisions varies from run to run.
 
-1. Start the four processes as described in [Running the application](#running-the-application) and open `http://localhost:3000`.
-2. **Seed the mock order** ([Setup](#setup), step 7) and **create a supervisor** with the tools enabled and, for example, `shipment_delayed` and `customer_message_received` as important events.
-3. **Start a run** for the seeded order. The first reasoning cycle (workflow start) appears on the run page, and the workflow goes to sleep on a durable timer.
-4. **Inject events** in the order of the [representative flow](#representative-demo-flow): the routine events (`order_created`, `payment_confirmed`, `shipment_created`) are recorded without waking the supervisor; `shipment_delayed` is important and wakes it.
-5. **Add a run instruction** such as "If shipment is delayed, escalate immediately." and watch the supervisor react.
-6. Use the **human controls**: Pause (events are recorded but there is no reasoning), Resume, Interrupt. Terminate is available but ends the workflow for good.
-7. Inject `delivered`: the order reaches its terminal status, and the **final output** (summary, key actions, key learnings, recommendations) appears.
+1. **Configure Gemini.** In the git-ignored `backend/.env` set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY=...` (see [Environment configuration](#environment-configuration); the model defaults to `gemini-3.6-flash`). Never commit the key. Then start the four processes as described in [Running the application](#running-the-application) (restart the **worker** after changing `.env`) and open `http://localhost:3000`.
+2. **Seed the mock world** with the SQL from [Setup](#setup), step 7. It creates order and shipment `DEMO-1001` (order `shipped`, shipment `in_transit`). Starting a run does not seed anything.
+3. **Create a supervisor** with all four tools enabled, `shipment_delayed` and `customer_message_received` as important events, `delivered` as a terminal status and the event to status mapping `delivered` to `delivered`.
+4. **Start a run** for order `DEMO-1001`. The first reasoning cycle (workflow start) appears on the run page; the supervisor typically calls a read tool such as `get_order_status`, which succeeds against the seeded rows, and the workflow then sleeps on a durable timer.
+5. **Inject events** in the order of the [representative flow](#representative-demo-flow): routine events (`order_created`, `payment_confirmed`, `shipment_created`) are recorded without waking the supervisor. **Add a run instruction** such as "If the shipment is delayed, escalate it immediately with priority high." and watch the supervisor wake with the reason `instruction_added`.
+6. **Move the mock world, then send the important event.** Run the `UPDATE mock_shipments SET status = 'delayed', delay_reason = 'Carrier capacity shortage' WHERE order_id = 'DEMO-1001';` statement from Setup step 7, then inject `shipment_delayed`. It is important, so it wakes the supervisor (`important_event`). Expected: the supervisor calls `escalate_shipment`; the Tool executions panel shows it as `success` and `mock_shipments.escalated` becomes true. Tools read the mock tables, not the injected events, which is why the `UPDATE` comes first.
+7. Use the **human controls**: Pause (events are recorded but there is no reasoning), Resume, Interrupt. Terminate is available but ends the workflow for good, with no final output.
+8. **Finish the run.** Update the mock rows to delivered (`UPDATE mock_shipments SET status = 'delivered' ...; UPDATE mock_orders SET status = 'delivered' ...;` for `DEMO-1001`), then inject `delivered`. The order reaches its terminal status and the run completes.
+9. **Verify the final output.** The Final output panel shows the summary, key actions, key learnings and recommendations, and says the **LLM** wrote it (`source: llm`). If it says the fallback wrote it, the LLM call failed; that is not a real-LLM result.
 
 The detailed walkthrough script for the video is kept separately.

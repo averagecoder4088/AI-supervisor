@@ -6,7 +6,7 @@
 - **What it supersedes.** It supersedes earlier architecture descriptions where they conflict, in particular the original *Final Architecture Specification* (`DOCS/Order_Supervisor_Final_Architecture_Specification (1).docx`), which was the frozen baseline the implementation started from. Section 16 lists where and why the final design differs from it.
 - **What it is not.** It does not mean every production-hardening concern was addressed. The system is a proof of concept (see sections 17 and 18).
 - **Sources.** The code under `backend/app/` and `frontend/src/`, the tests under `backend/tests/`, the scripts under `backend/scripts/`, the original specification, and the recorded project decisions. Where the original specification and the code disagree, the code is treated as the truth. The four Mermaid diagrams live in the root [`README.md`](README.md) and are not repeated here.
-- **Validation status in one line.** 313 backend tests pass; the real Temporal runtime was validated with a scripted FakeLLM; the real Gemini provider passed a live smoke test; the **real Gemini + Temporal end-to-end run has not been performed**. Details in section 14.
+- **Validation status in one line.** 313 backend tests pass; the real Temporal runtime was validated with a scripted FakeLLM; the real Gemini provider passed a live smoke test; the **real Gemini + Temporal end-to-end run was performed and passed on 2026-09-25**. Details in section 14.
 
 ## 2. Executive Architecture Summary
 
@@ -329,11 +329,12 @@ The system is not production-hardened; see sections 17 and 18.
 - `backend/scripts/llm_smoke.py`: **2 real Gemini requests** (one reasoning decision and one final output) through the runtime's own client with the application's prompts and strict schemas; both answers passed the same local validation the workflow uses.
 - `backend/scripts/gemini_e2e.py --mock-llm`: the full pipeline (production worker, real Temporal, FastAPI, PostgreSQL) against a local OpenAI-compatible stub. It proves the pipeline and the exact HTTP request shape, **not Gemini itself**. It passed.
 - A run of the same script with a fake key failed as expected (the provider rejected the credentials).
+- `backend/scripts/gemini_e2e.py` (real mode): the same pipeline against the real Gemini API, no injected LLM. Real decisions on workflow start, an important event and a durable timer; real tool Activities changed the mock world; the final output was written by Gemini (`source: llm`); the workflow completed. A later re-run of `llm_smoke.py` returned HTTP 503 and 429 (provider load and quota), which the script does not retry.
 
 | Statement | Status |
 |---|---|
 | **Real Gemini smoke test** | **VERIFIED** |
-| **Real Gemini + Temporal end-to-end** | **NOT VERIFIED** (never run with a real key) |
+| **Real Gemini + Temporal end-to-end** | **VERIFIED** (2026-09-25, `gemini_e2e.py`, real Gemini `gemini-3.6-flash`; the first attempt hit transient Gemini 503 responses and failed the script's strict clean-run check, a second attempt passed; a further real run seeded with the README SQL and given a live instruction also passed) |
 | Real Temporal runtime with FakeLLM | Verified |
 | Full pipeline against a local stub (`--mock-llm`) | Verified (not Gemini) |
 | Real OpenAI provider | **Not validated live**; the adapter is covered by offline tests only |
@@ -387,7 +388,7 @@ The original specification was frozen as the implementation baseline. These are 
 | Live state through a Temporal Query | The same, with `QueryRejectCondition.NOT_OPEN` (closed workflow gives 409) and a bounded 5 s timeout | Found by experiment: without it Temporal replays closed workflows and reports stale state |
 | Frontend calls to the backend unspecified | Server Components for reads, Server Actions for writes, no CORS | The backend has no CORS and changing it was out of scope |
 | Manual refresh only | Live polling every 3 s, with a capped status read | Freshness for observation; the cap keeps forms responsive when Temporal is down |
-| Validation: end-to-end tests | S1 to S5 scenarios, real Temporal runtime validation, a live Gemini smoke test | Progressively closer to the real runtime |
+| Validation: end-to-end tests | S1 to S5 scenarios, real Temporal runtime validation, a live Gemini smoke test, a real Gemini + Temporal end-to-end run | Progressively closer to the real runtime |
 
 Small implementation corrections (test fixes, wording fixes, timestamp handling, UI polish) are not listed here.
 
@@ -412,7 +413,7 @@ These are deliberate POC boundaries, not accidental omissions.
 |---|---|
 | Workflow, Activities, API, persistence | Implemented; **validated** by 313 tests and the real-runtime validation |
 | Real Temporal runtime | **Validated** with FakeLLM |
-| Gemini provider | **Partially validated**: live smoke test passed; the real Gemini + Temporal end-to-end is **not validated** |
+| Gemini provider | **Validated**: live smoke test and a real Gemini + Temporal end-to-end run passed; Gemini can return transient 503 or 429 errors, which fail a cycle cleanly and are retried at the next wake |
 | OpenAI provider | Implemented; **not validated** live |
 | Frontend | Implemented; **validated** manually in a real browser with FakeLLM; no automated tests; not exercised with a real LLM |
 | Mock world from the UI | Not seeded automatically (documented boundary) |
