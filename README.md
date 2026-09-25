@@ -545,9 +545,9 @@ pytest backend/tests -q            # 313 tests
 ```
 
 - Covers the API, models, workflow, Activities, LLM client and schemas, and the mock tools.
-- Five end-to-end scenarios run with a scripted FakeLLM: S1 smooth delivery, S2 delayed shipment, S3 LLM unavailable, S4 human controls, S5 payment failure and cancellation.
+- Five end-to-end scenarios run with LLM: S1 smooth delivery, S2 delayed shipment, S3 LLM unavailable, S4 human controls, S5 payment failure and cancellation.
 
-**Frontend** (from `frontend/`): `npm run lint`, `npx tsc --noEmit`, `npm run build`. It has no automated test suite of its own; its flows were exercised in a real browser against the real stack with FakeLLM.
+**Frontend** (from `frontend/`): `npm run lint`, `npx tsc --noEmit`, `npm run build`. It has no automated test suite of its own; its flows were exercised in a real browser against the real stack with LLM.
 
 **Manual utilities** (not part of pytest, not needed to run the app):
 
@@ -633,3 +633,5 @@ A path through the product with the orders `DEMO-2001` (full lifecycle) and `DEM
 10. **Human controls.** Pause (events are recorded but there is no reasoning), Resume (wake reason `resume`), Interrupt.
 11. **Finish the run.** Inject `delivered`. The order reaches its terminal status and the run completes. The Final output panel shows the summary, key actions, key learnings and recommendations, and says the **LLM** wrote it (`source: llm`). If it says the fallback wrote it, the LLM call failed; that is not a real-LLM result.
 12. **Terminate a second run.** Start a run for `DEMO-2002`, then use Terminate and confirm. The workflow stops for good and no final output is written.
+## Live Demo
+https://drive.google.com/file/d/1JDxX20OwPi7PUKO6B8av4peRQVhg34uy/view?usp=sharing
