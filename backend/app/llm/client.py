@@ -62,7 +62,7 @@ class OpenAILLMClient:
     """OpenAI-SDK adapter behind the ``LLMClient`` protocol (decision B7).
 
     provider="openai" (default): the OpenAI Responses API. provider="gemini": Google's
-    OpenAI-compatible Chat Completions endpoint (``base_url``), model gemma-4-31b-it by default,
+    OpenAI-compatible Chat Completions endpoint (``base_url``), model gemini-3.1-flash-lite by default,
     ``reasoning_effort`` only when configured, selected by ``LLM_PROVIDER=gemini``.
 
     It returns the model's raw JSON text and translates provider failures into

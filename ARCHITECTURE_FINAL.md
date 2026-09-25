@@ -2,17 +2,18 @@
 
 ## 1. Document Status
 
-- **What this is.** The final architecture description of the implemented Order Supervisor POC. It reflects the repository at the commit that adds this file (HEAD before it: `acb08f6`, 27 commits on `main`).
-- **What it supersedes.** It supersedes earlier architecture descriptions where they conflict, in particular the original *Final Architecture Specification* (`DOCS/Order_Supervisor_Final_Architecture_Specification (1).docx`), which was the frozen baseline the implementation started from. Section 16 lists where and why the final design differs from it.
-- **What it is not.** It does not mean every production-hardening concern was addressed. The system is a proof of concept (see sections 17 and 18).
-- **Sources.** The code under `backend/app/` and `frontend/src/`, the tests under `backend/tests/`, the scripts under `backend/scripts/`, the original specification, and the recorded project decisions. Where the original specification and the code disagree, the code is treated as the truth. The four Mermaid diagrams live in the root [`README.md`](README.md) and are not repeated here.
-- **Validation status in one line.** 313 backend tests pass; the real Temporal runtime was validated with a scripted FakeLLM; the real Gemini provider passed a live smoke test; the **real Gemini + Temporal end-to-end run was performed and passed on 2026-09-25**. Details in section 14.
+- **What this is.** The final architecture description of the implemented Order Supervisor POC, as of the repository at the commit that added this file.
+- **Source of truth.** The code under `backend/app/` and `frontend/src/`, the tests, and the scripts. Where this document and the code disagree, the code wins. It supersedes the original specification (`DOCS/Order_Supervisor_Final_Architecture_Specification (1).docx`) where they conflict; section 16 lists the differences.
+- **Scope.** A proof of concept, not a production system (sections 17 and 18).
+- **Validation in one line.** 313 backend tests, a real Temporal runtime run, a live Gemini smoke test and a real Gemini + Temporal end-to-end run (section 14).
+- **Diagrams.** The four Mermaid diagrams live in the root [`README.md`](README.md) and are not repeated here.
 
 ## 2. Executive Architecture Summary
 
 | Point | Final architecture (verified in the code) |
 |---|---|
 | Unit of supervision | **One long-running Temporal `OrderWorkflow` per order.** Workflow id `order-{order_id}` (`order_workflow_id()` in `backend/app/temporal/constants.py`), task queue `order-supervisor`. |
+| Technology | **Fixed by the assignment:** Next.js (App Router), Tailwind CSS, FastAPI, Temporal Python SDK, PostgreSQL. **Chosen:** async SQLAlchemy 2.0 with Alembic migrations, plain LLM SDK calls returning structured JSON (no agent framework), a rule-based wake policy. |
 | Orchestration | **Temporal** owns the workflow lifecycle, Signals, durable timers and compact workflow state. |
 | API boundary | **FastAPI** validates requests, reads and writes application rows, and starts, signals, queries and terminates the workflow. |
 | Frontend | **Next.js App Router**: Server Components read, Server Actions write, a small client component refreshes the page while a run is active. The browser never contacts FastAPI, Temporal or PostgreSQL. |
@@ -29,11 +30,9 @@ Two points are easy to get wrong and are checked against the code throughout: **
 
 ### Frontend (`frontend/`)
 
-- **Stack:** Next.js 16 (App Router), TypeScript, Tailwind CSS.
-- **Reads** are Server Components that call FastAPI on the server (`API_BASE_URL`, server-side only).
-- **Writes** are Server Actions (`"use server"`): supervisor creation, run creation, event injection, run instructions, the four human controls. The browser posts to the Next.js server, which calls FastAPI. The backend has no CORS configuration on purpose.
-- **Pages:** dashboard `/`, supervisors `/supervisors` and `/supervisors/new`, run creation `/runs/new`, run page `/runs/[runId]` (overview, workflow status, human controls, instructions, event injection, then memory, timeline, actions, tool executions, final output).
-- **Live observation polling:** one client component (`LiveRefresh`) calls `router.refresh()` every 3 seconds while a run is active. Details in section 13.
+- Next.js 16 (App Router), TypeScript, Tailwind CSS. Server Components read from FastAPI; Server Actions write to it; the browser never contacts the backend.
+- Pages: `/`, `/supervisors`, `/supervisors/new`, `/runs/new`, `/runs/[runId]`.
+- Details in section 13.
 
 ### API (`backend/app/api/`)
 
@@ -96,16 +95,18 @@ Retry categories are in section 11.
 
 Stores: `supervisors`, `runs`, `events`, `timeline_entries`, `actions`, `tool_executions`, `memory_snapshots`, `final_outputs`, plus three mock operational tables (`mock_orders`, `mock_shipments`, `mock_customer_messages`). It deliberately does **not** run workflows, schedule wake-ups or hold the live workflow state. The application never polls it to simulate supervision. Three Alembic migrations create the schema (head `821bc1bc7abf`).
 
+- **Relationships:** `supervisors` 1:N `runs`; `runs` 1:N `events`, `timeline_entries`, `actions` and `memory_snapshots`; `actions` 1:N `tool_executions`; `runs` 1:1 `final_outputs` (unique on `run_id`). `runs.order_id` is unique, and a supervisor is unique on `(name, version)`.
+- **Action vs tool execution:** an *action* is what the AI decided to do; a *tool execution* is what actually happened when that decision was attempted. Likewise an *event* is a raw incoming record, while a *timeline entry* is the broader human-readable history.
+
 ### LLM (`backend/app/llm/`)
 
 - **Abstraction:** the `LLMClient` protocol has one method, `generate_json(system_prompt, user_prompt, schema_name, json_schema) -> str` (the raw JSON text). The Activities validate the text; the client only transports.
 - **`FakeLLMClient`** (`fake.py`): a deterministic scripted double. It returns queued responses in order (a string, an exception to raise, or an async callable) and falls back to a valid default decision or final output when its script is empty. It records every call. It is injected only by the tests and by `runtime_validation.py`; it is **not selectable through configuration**.
 - **`OpenAILLMClient`** (`client.py`) with two providers behind the same protocol:
   - `openai` (the code default): the OpenAI Responses API with strict `json_schema` output and `store=False`.
-  - `gemini`: Google's OpenAI-compatible endpoint through the same `openai` SDK, using **Chat Completions** with a strict `json_schema` `response_format` and `reasoning_effort` (default `gemini-3.6-flash`, `low`). It uses Chat Completions because that endpoint does not serve the Responses API.
+  - `gemini`: Google's OpenAI-compatible endpoint through the same `openai` SDK, using **Chat Completions** with a strict `json_schema` `response_format` and, only when configured, `reasoning_effort` (default model `gemini-3.1-flash-lite`, no reasoning effort sent). It uses Chat Completions because that endpoint does not serve the Responses API.
 - **Retries belong to Temporal:** the SDK's own retries are off (`max_retries=0`) and the client timeout is 45 seconds, below the Activity timeouts.
 - **Provider boundary:** provider errors are translated into three classes (non-retryable authentication, non-retryable not-configured, retryable provider error); key material is redacted and never reaches logs, the timeline or the database.
-- **Validation status:** see sections 1 and 14.
 
 ### Tools (`backend/app/tools/`)
 
@@ -127,6 +128,17 @@ The relationship between starting a workflow, Signals and initialization, verifi
 | Is there a window where the workflow exists but the run row is still `starting`? | Yes. The API saves `starting`, starts the workflow, then records `running`. `starting` counts as active, so a Signal in that window is accepted, and `@workflow.init` makes it safe. |
 
 If the workflow starts but recording `running` fails, the API answers `500 RUN_STATE_UPDATE_FAILED` and leaves the run `starting`; it does not terminate a correctly running workflow. If starting the workflow fails, the run is marked `failed` and keeps its `order_id`.
+
+### End-to-end flow
+
+1. The UI, a script or the simulator submits an order event through FastAPI.
+2. FastAPI validates it and sends a `submit_event` Signal to the order's workflow.
+3. The Signal handler queues the event and updates state without doing heavy work.
+4. The wake policy decides whether the supervisor reasons now; the event is recorded either way.
+5. If it reasons, the workflow runs the reasoning Activity and validates the returned decision.
+6. It runs at most one tool through an Activity and records the action and its outcome.
+7. It updates the compact memory and schedules the next wake, then sleeps on a durable timer.
+8. When the order reaches a terminal status it generates and stores the final output, marks the run completed and ends.
 
 ### Wake triggers
 
@@ -172,7 +184,7 @@ The workflow sleeps on a **durable Temporal timer** until the scheduled wake tim
 
 A terminal order completes even while the supervisor is paused (pause stops reasoning, not completion). A decision in flight when the order becomes terminal is discarded (`discarded_terminal`).
 
-**R1, the terminal flush and drain.** While the final output is generated (seconds to minutes with a real LLM) the run is still open, so the API keeps accepting events, instructions and controls with `202`. Before R1 those Signals were handled but never persisted because the workflow ended. R1 added the flush after final-output generation and the drain loop after `complete_run`, reusing the idempotent persistence Activities. Late events are now recorded, but they do not wake reasoning, reopen the run or change the already generated final output.
+**R1, the terminal flush and drain.** While the final output is generated (seconds to minutes with a real LLM) the run is still open, so the API keeps accepting events, instructions and controls. Before R1 those Signals were never persisted because the workflow ended. R1 added a flush after final-output generation and a drain loop after `complete_run`. Late events are now recorded, but they do not wake reasoning, reopen the run or change the final output.
 
 ### Hard termination
 
@@ -307,29 +319,30 @@ The system is not production-hardened; see sections 17 and 18.
 ## 13. Frontend Architecture
 
 - **Reads and writes.** Server Components fetch server-side; Server Actions perform every write. The browser never calls the backend.
-- **Why Server Actions and no browser-to-FastAPI calls:** the backend has no CORS configuration and changing it was out of scope; server-to-server calls need none.
+- **Why Server Actions:** the backend has no CORS configuration, and server-to-server calls need none.
 - **Run page** (top to bottom): overview (the header shows both the run status and, when readable, the live workflow state), workflow status, human controls, instructions (the supervisor's read-only base instruction, then the run's additional instructions and a form), event injection, then memory, timeline (oldest first), actions, tool executions, final output. Creation flows: supervisor form (tools, wake behavior, terminal statuses, status mapping) and run form (order id, supervisor, run instructions). The dashboard splits active from completed and ended runs.
 - **Human controls:** which buttons appear depends on the workflow's own state from the status Query (Pause, Interrupt, Terminate while running; Resume, Interrupt, Terminate while paused), because a paused run still reads `running`. Terminate needs an explicit confirmation, enforced again in the Server Action. If the state cannot be read the buttons are shown disabled ("Unable to determine the workflow state").
 - **Live polling.** `LiveRefresh` calls `router.refresh()` every 3 seconds, so the same Server Components re-read every source; it also owns the manual Refresh button so the two share one in-flight flag. It polls while `runs.status` is active (a paused workflow is still active), skips hidden tabs, and stops when the run is no longer active or the workflow query has reported the workflow closed on two consecutive renders. A failing status query or an unreachable backend does not stop it. The `/status` read is capped at 3 seconds so a dead Temporal cannot make each refresh slow.
-- **Why polling, not WebSocket or SSE:** the goal is observation freshness for a POC, not realtime infrastructure; polling reuses the existing server-rendered pages with no new backend endpoint and no new dependency. WebSocket and SSE were excluded by the slice's scope; no comparison beyond that was recorded.
+- **Why polling:** it reuses the server-rendered pages with no new endpoint or dependency; WebSocket and SSE were out of scope.
 - **Failure isolation.** Each observation source loads independently; one failing or malformed source shows "unavailable" in its own section without breaking the page.
 - **Stale and closed workflows.** A control sent to a run that ended answers `409` and the UI says the run state changed; a closed workflow shows no controls.
-- **Testing.** The frontend has no automated test suite; it was verified with lint, typecheck, build and a scripted real-browser harness kept outside the repository.
+- **Testing.** No automated frontend tests; checked with lint, typecheck, build and manual browser runs.
 
 ## 14. Runtime / Validation Architecture
 
 ### Offline
-- **313 backend tests**, offline and deterministic, against a real local PostgreSQL (rolled-back transactions) and Temporal's time-skipping test server. The LLM is `FakeLLMClient`.
-- **Five end-to-end scenarios** (S1 smooth delivery, S2 delayed shipment, S3 LLM unavailable, S4 human controls, S5 payment failure and cancellation) drive the real API, workflow, Activities and mock world with a scripted LLM; the scheduled wake is crossed by skipping time, never by waiting.
+- **313 backend tests**, deterministic, against a real local PostgreSQL and Temporal's time-skipping test server, with `FakeLLMClient` as the LLM.
+- **Five end-to-end scenarios** (S1 smooth delivery, S2 delayed shipment, S3 LLM unavailable, S4 human controls, S5 payment failure and cancellation) drive the real API, workflow, Activities and mock world with a scripted LLM. The scheduled wake is crossed by skipping time.
 
 ### Real Temporal (`backend/scripts/runtime_validation.py`)
-- A **real Temporal dev server** (SDK-managed), a **real worker** (the production `create_worker` with `FakeLLMClient` injected), a **real FastAPI** process and **real PostgreSQL**, as separate processes. It runs the S1 scenario with the wake interval set to 1 minute so a **real durable timer** fires; the timer wake is proven from Temporal history. It passed three runs when it was sealed, with no production change needed.
+- A real Temporal dev server, a real worker (the production `create_worker` with `FakeLLMClient`), a real FastAPI process and real PostgreSQL, as separate processes.
+- It runs S1 with a 1-minute wake interval so a real durable timer fires, proven from Temporal history.
 
 ### Real LLM
-- `backend/scripts/llm_smoke.py`: **2 real Gemini requests** (one reasoning decision and one final output) through the runtime's own client with the application's prompts and strict schemas; both answers passed the same local validation the workflow uses.
-- `backend/scripts/gemini_e2e.py --mock-llm`: the full pipeline (production worker, real Temporal, FastAPI, PostgreSQL) against a local OpenAI-compatible stub. It proves the pipeline and the exact HTTP request shape, **not Gemini itself**. It passed.
-- A run of the same script with a fake key failed as expected (the provider rejected the credentials).
-- `backend/scripts/gemini_e2e.py` (real mode): the same pipeline against the real Gemini API, no injected LLM. Real decisions on workflow start, an important event and a durable timer; real tool Activities changed the mock world; the final output was written by Gemini (`source: llm`); the workflow completed. A later re-run of `llm_smoke.py` returned HTTP 503 and 429 (provider load and quota), which the script does not retry.
+- `llm_smoke.py`: 2 real Gemini requests (a decision and a final output) through the runtime's own client, validated with the same local checks as the workflow.
+- `gemini_e2e.py --mock-llm`: the full pipeline against a local OpenAI-compatible stub. It proves the pipeline and the HTTP request shape, not Gemini itself.
+- `gemini_e2e.py` (real mode): the same pipeline against the real Gemini API. Real decisions on start, on an important event and on a durable timer; real tool Activities changed the mock world; the final output was written by Gemini (`source: llm`).
+- Gemini can return transient 503 or 429 errors, which fail a cycle cleanly and are retried at the next wake.
 
 | Statement | Status |
 |---|---|
@@ -344,7 +357,7 @@ The system is not production-hardened; see sections 17 and 18.
 
 | Decision | Final choice | Why | Alternative considered |
 |---|---|---|---|
-| Orchestration vs database | Temporal runs the workflow; PostgreSQL is application and history data | Fixed by the specification: Temporal is the durable engine, not the reporting database | Polling PostgreSQL to simulate long-running supervision (ruled out by the specification's rules) |
+| Orchestration vs database | Temporal runs the workflow; PostgreSQL is application and history data | Fixed by the specification: Temporal is the durable engine, not the reporting database | Cron or a loop polling PostgreSQL, or Celery/RQ tasks that sleep (ruled out: no durability, no replay, hand-built timers and retries; polling is also forbidden by the specification's rules) |
 | Workflow granularity | One `OrderWorkflow` per order, id `order-{order_id}` | The order is the natural unit of state; a core requirement | A workflow per event, per cycle, or global (rejected) |
 | Events into the workflow | Signals (`submit_event`) | Something happened; the workflow decides whether to wake | Polling for events (ruled out) |
 | Signal-With-Start | **Not used by the application.** The API starts once (`start_workflow`) and afterwards only signals existing workflows; `@workflow.init` makes a startup-time Signal safe, proven by one test | Keeps "start" and "deliver" separate; an event cannot create a run | No decision to adopt Signal-With-Start in the API is recorded; it was not formally weighed |
@@ -373,24 +386,18 @@ Only decisions recorded during the project are listed; where no alternative was 
 
 ## 16. Architecture Evolution
 
-The original specification was frozen as the implementation baseline. These are the meaningful changes between it and the final system.
+The original specification was the implementation baseline. The differences that matter for the code:
 
-| Earlier design (specification) | Final design | Reason for change |
+| Specification | Final design | Why |
 |---|---|---|
-| UI deferred ("intentionally kept on hold") | A full Next.js UI: creation flows, event injection, instructions, human controls, observation, live polling | The UI was designed last, on top of the frozen backend; it maps onto the existing APIs |
-| 10 API endpoints (no `pause`, no read endpoints) | 18 endpoints: added `pause`, six observation endpoints (including the `status` Query) and health | Pause is a specified control that needed an endpoint; the read side was shaped by what the UI shows |
-| Terminal: generate final output, mark complete, end | Same sequence plus a flush after final-output generation and a drain after `complete_run` (**R1**) | A data-loss defect: Signals accepted during terminal handling were never persisted |
-| No event-to-status mapping specified | `order_status_by_event` on the supervisor | Without a source for it no run could ever reach a terminal status through events |
-| Interrupt: "stop the current cycle" | Precise semantics: abandon an in-flight LLM Activity, let a started tool finish, never undo completed work | A started side effect cannot be safely undone |
-| Tools: "mocked" | Step 4 deterministic stubs, then a PostgreSQL-backed mock world; the UI does not seed it | Realistic, observable effects without real integrations |
-| "Direct SDK calls with structured JSON" | OpenAI Responses adapter first; then Gemini as the real provider through the same client | Gemini's OpenAI-compatible endpoint serves Chat Completions, not Responses; a branch kept the protocol unchanged |
-| Run lifecycle not specified | `starting`, `running`, `failed`, `completed`, `terminated`, with honest handling of a non-atomic start | PostgreSQL and Temporal are not one transaction |
-| Live state through a Temporal Query | The same, with `QueryRejectCondition.NOT_OPEN` (closed workflow gives 409) and a bounded 5 s timeout | Found by experiment: without it Temporal replays closed workflows and reports stale state |
-| Frontend calls to the backend unspecified | Server Components for reads, Server Actions for writes, no CORS | The backend has no CORS and changing it was out of scope |
-| Manual refresh only | Live polling every 3 s, with a capped status read | Freshness for observation; the cap keeps forms responsive when Temporal is down |
-| Validation: end-to-end tests | S1 to S5 scenarios, real Temporal runtime validation, a live Gemini smoke test, a real Gemini + Temporal end-to-end run | Progressively closer to the real runtime |
-
-Small implementation corrections (test fixes, wording fixes, timestamp handling, UI polish) are not listed here.
+| 10 API endpoints | 18: added `pause`, six observation endpoints (including the `status` Query) and health | Pause is a specified control; the read side follows what the UI shows |
+| Terminal: final output, mark complete, end | Adds a flush after final-output generation and a drain after `complete_run` (R1) | Signals accepted during terminal handling were never persisted |
+| No event-to-status mapping | `order_status_by_event` on the supervisor | Without it no run could reach a terminal status through events |
+| Interrupt: "stop the current cycle" | Abandon an in-flight LLM Activity, let a started tool finish, never undo completed work | A started side effect cannot be undone safely |
+| "Mocked" tools | Deterministic stubs first, then a PostgreSQL-backed mock world (not seeded by the UI) | Observable effects without real integrations |
+| Direct SDK calls | OpenAI Responses adapter, then Gemini through the same client (Chat Completions) | Gemini's endpoint serves Chat Completions, not Responses |
+| Live state through a Query | Same, with `QueryRejectCondition.NOT_OPEN` and a 5 s timeout | Without it a closed workflow is replayed and reports stale state |
+| UI deferred | Full Next.js UI with Server Actions and 3 s polling | Designed last, on top of the frozen backend |
 
 ## 17. Non-Goals and Deliberate Scope Boundaries
 
@@ -409,15 +416,6 @@ These are deliberate POC boundaries, not accidental omissions.
 
 ## 18. Known Limitations / Unverified Areas
 
-| Area | Status |
-|---|---|
-| Workflow, Activities, API, persistence | Implemented; **validated** by 313 tests and the real-runtime validation |
-| Real Temporal runtime | **Validated** with FakeLLM |
-| Gemini provider | **Validated**: live smoke test and a real Gemini + Temporal end-to-end run passed; Gemini can return transient 503 or 429 errors, which fail a cycle cleanly and are retried at the next wake |
-| OpenAI provider | Implemented; **not validated** live |
-| Frontend | Implemented; **validated** manually in a real browser with FakeLLM; no automated tests; not exercised with a real LLM |
-| Mock world from the UI | Not seeded automatically (documented boundary) |
-
 Open limitations:
 - **`send_customer_update`** ignores the idempotency key (single-attempt rule only; residual "sent but recorded failed" risk).
 - **A persistence outage of about 30 seconds or more fails the workflow.**
@@ -430,32 +428,13 @@ Open limitations:
 - **The timeline** is oldest first with no filtering or pagination.
 - **Python 3.9** is the project's interpreter, which pins the `openai` SDK at 2.48.0.
 
-## 19. Interview Defense Guide
 
-### If asked why...
 
-- **Why Temporal?** The supervisor must live for a long time, sleep without a process, wake on a timer or a Signal, and survive worker restarts. Durable timers, Signals and replay provide that without hand-written scheduling or state recovery.
-- **Why one workflow per order?** The order is the unit of state, and one id per order means one run per order (PostgreSQL enforces it too); a workflow per event or per cycle would lose the continuity the supervisor needs.
-- **Why Signals?** They change a live workflow. Handlers only update state and queue records, and the main loop persists them, so a Signal never does heavy work.
-- **Why Signal-With-Start? (Trick question.)** The application does not use it. The API starts a workflow in one place and afterwards only signals existing ones; an incoming event cannot start a run. It appears in one test, which proves that a Signal delivered in the first activation sees initialized state because the workflow initializes in `@workflow.init`.
-- **Why timers?** A real Temporal timer lets the workflow sleep and wake on schedule with no thread held; the LLM runs only when a wake reason is set.
-- **Why Activities?** Workflow code must be deterministic. LLM calls, database writes and tools are non-deterministic, so they run as Activities with timeouts and retries.
-- **Why PostgreSQL if Temporal already persists state?** Temporal's history is for orchestration and replay, not for queries. PostgreSQL holds the queryable history the UI reads; the workflow keeps only compact state.
-- **Why memory and timeline separately?** Memory is a small rewritten summary given to the LLM; the timeline is the complete history. Memory cannot be the history because it is lossy by design.
-- **Why FakeLLM?** Repeatable, offline tests and validation with scripted decisions; it is not selectable through configuration.
-- **Why Gemini?** It is the real provider that was validated live. It is reached through Google's OpenAI-compatible endpoint with the existing SDK, using Chat Completions because that endpoint does not serve the Responses API.
-- **Why not LangGraph or multi-agent?** Out of scope by the assignment and the rules. One bounded reasoning call per wake with compact memory and four fixed tools is easier to reason about, test and observe.
-- **Why polling instead of WebSockets?** The goal is observation freshness, not realtime infrastructure. A 3 second re-render of the server-rendered page needs no new endpoint or dependency.
-- **Why mocked tools?** Real integrations are out of scope. The mocks act on PostgreSQL tables, so their effects are real, observable and testable. They are not seeded from the UI, which is a documented boundary.
-- **Why no `continue_as_new`?** POC scope; the workflow keeps only compact state, but a very long-running history is not rolled over.
-- **Why a rule-based wake policy?** It is deterministic and cheap, and the assignment allows a simple policy. Every event is recorded whatever it answers.
-- **Why does the LLM not execute tools?** It only returns a decision. The deterministic workflow validates it and executes the tool through an Activity, so the LLM cannot cause a side effect on its own, and a stale decision can be discarded safely.
-- **What happens if the LLM fails?** The Activity is retried (3 attempts for provider errors and invalid output); after that the cycle ends as `llm_failed`: no tool, events stay pending, the workflow continues. Authentication or missing-key errors are not retried.
-- **What happens if the workflow is paused?** It stays alive and reasoning stops; events and instructions are still recorded. A cycle in flight has its decision discarded. Resume wakes it to re-evaluate everything pending. `runs.status` stays `running`.
-- **What if an interrupt occurs during a tool?** The tool is not cancelled: it finishes, its outcome is persisted, and the cycle completes normally. An interrupt during the LLM call abandons the call and discards its decision.
-- **What happens at terminal state?** The order's status reaches a configured terminal status through an event mapping (not an LLM decision). No more reasoning; the final output is generated (or the deterministic fallback), late records are flushed (R1), `complete_run` marks the run completed, and the workflow ends.
-- **What if a decision becomes stale?** If the cycle was interrupted, the supervisor was paused, or the order became terminal meanwhile, nothing from the decision is applied (no tool, no memory snapshot, events stay pending); only the outcome and a system note are recorded.
+## 19. Final Architecture Summary
 
-## 20. Final Architecture Summary
-
-Order Supervisor runs one durable Temporal workflow per order, with the workflow id `order-{order_id}`. FastAPI starts it once when a run is created, and afterwards only signals, queries or terminates it; the Next.js frontend talks to FastAPI from the server, so the browser never touches Temporal or the database. The workflow is deterministic: it holds compact state, records every event, and decides *when* to reason from a wake reason, which is a workflow start, an important event Signal, a durable timer expiry, an added instruction or a resume. When it reasons it calls an Activity that asks the LLM for a strict JSON decision, then validates that decision itself, discards it if the situation changed, and otherwise runs at most one tool through another Activity, updates the supervisor's compact memory, and sleeps until the next wake. The LLM never causes a side effect. PostgreSQL holds the application history the UI reads, while Temporal holds only the orchestration state. A run ends when the order reaches a configured terminal status, not because the LLM says so; the workflow then writes a final report, with a deterministic fallback, and completes, or a human hard-terminates it. It is a proof of concept: 313 tests pass, the real Temporal runtime and a live Gemini call were each validated, but the real Gemini plus Temporal end-to-end run was not.
+- **One workflow per order.** One durable Temporal `OrderWorkflow` per order, id `order-{order_id}`. FastAPI starts it once when a run is created and afterwards only signals, queries or terminates it. The browser never touches Temporal or the database.
+- **A deterministic workflow.** It holds compact state, records every event, and decides *when* to reason from a wake reason: workflow start, an important event Signal, a durable timer expiry, an added instruction or a resume.
+- **Reasoning.** An Activity asks the LLM for a strict JSON decision. The workflow validates it, discards it if the situation changed, and otherwise runs at most one tool through another Activity, updates the compact memory and sleeps until the next wake. The LLM never causes a side effect.
+- **Data.** PostgreSQL holds the history the UI reads; Temporal holds only orchestration state.
+- **Ending.** A run ends when the order reaches a configured terminal status, not because the LLM says so. The workflow then writes a final report (with a deterministic fallback) and completes. A human can also hard-terminate it.
+- **Status.** A proof of concept: 313 tests pass, and the real Temporal runtime, a live Gemini call and a full real Gemini + Temporal run were each validated (section 14). The OpenAI provider was not validated live.

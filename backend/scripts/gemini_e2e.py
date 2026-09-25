@@ -4,7 +4,7 @@ Runs the production stack as separate processes and drives one small order lifec
 
     driver -> FastAPI (uvicorn) -> real Temporal dev server <- the PRODUCTION worker
               (`python -m app.temporal.worker`, LLM chosen by LLM_PROVIDER, NOT a FakeLLMClient)
-              -> Gemini API (gemma-4-31b-it by default, OpenAI-compatible endpoint)
+              -> Gemini API (gemini-3.1-flash-lite by default, OpenAI-compatible endpoint)
 
 Scenario (about 4 LLM calls, about 3 minutes; one run is enough, quota is limited):
   start -> reasoning #1 (workflow_start) -> payment_confirmed, shipment_created (routine, no LLM)

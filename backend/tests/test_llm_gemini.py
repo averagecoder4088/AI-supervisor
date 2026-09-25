@@ -118,8 +118,8 @@ async def test_gemini_request_is_chat_completions_with_the_exact_approved_shape(
     assert str(request.url) == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     assert request.headers["authorization"] == f"Bearer {KEY}"
     body = json.loads(request.content)
-    assert body["model"] == "gemini-3.6-flash"
-    assert body["reasoning_effort"] == "low"
+    assert body["model"] == "gemini-3.1-flash-lite"
+    assert "reasoning_effort" not in body  # not sent unless configured
     assert body["messages"] == [
         {"role": "system", "content": "system text"},
         {"role": "user", "content": "user text"},
@@ -130,7 +130,7 @@ async def test_gemini_request_is_chat_completions_with_the_exact_approved_shape(
         "json_schema": {"name": REASONING_SCHEMA_NAME, "schema": schema, "strict": True},
     }
     # nothing else: no temperature, no Responses-API fields, no output cap
-    assert set(body) == {"model", "messages", "response_format", "reasoning_effort"}
+    assert set(body) == {"model", "messages", "response_format"}
     assert parse_reasoning_decision(raw).assessment == "ok"  # local strict validation unchanged
 
 
@@ -143,7 +143,7 @@ async def test_final_output_uses_the_same_endpoint_and_its_own_unchanged_schema(
     body = json.loads(server.requests[0].content)
     assert body["response_format"]["json_schema"]["name"] == FINAL_OUTPUT_SCHEMA_NAME
     assert body["response_format"]["json_schema"]["schema"] == final_output_json_schema()
-    assert body["reasoning_effort"] == "low" and body["model"] == "gemini-3.6-flash"
+    assert "reasoning_effort" not in body and body["model"] == "gemini-3.1-flash-lite"
 
 
 @pytest.mark.asyncio
@@ -154,7 +154,7 @@ async def test_the_sdk_client_keeps_retries_off_and_the_gemini_base_url():
     assert client._sdk_client.max_retries == 0  # Temporal owns retries
     assert str(client._sdk_client.base_url) == GEMINI_BASE_URL
     assert client._sdk_client.timeout == 45.0
-    assert repr(client) == "OpenAILLMClient(provider='gemini', model='gemini-3.6-flash', configured=True)"
+    assert repr(client) == "OpenAILLMClient(provider='gemini', model='gemini-3.1-flash-lite', configured=True)"
 
 
 @pytest.mark.parametrize(
@@ -383,9 +383,9 @@ def test_gemini_settings_supply_the_exact_defaults_and_read_the_key_from_gemini_
     client = OpenAILLMClient.from_settings(settings)
     assert client._provider == "gemini"
     assert client._api_key == KEY  # GEMINI_API_KEY, not LLM_API_KEY
-    assert client._model == "gemini-3.6-flash"
+    assert client._model == "gemini-3.1-flash-lite"
     assert client._base_url == "https://generativelanguage.googleapis.com/v1beta/openai/"
-    assert client._reasoning_effort == "low"
+    assert client._reasoning_effort is None  # not sent unless LLM_REASONING_EFFORT is set
     assert client._timeout_seconds == 45.0
     assert KEY not in repr(settings) and KEY not in settings.model_dump_json()
 
@@ -431,5 +431,5 @@ def test_the_worker_default_client_is_gemini_when_configured(monkeypatch):
     final_llm = activities["generate_final_output"].__self__._llm
     assert reasoning_llm is final_llm  # one client serves BOTH Activities
     assert isinstance(reasoning_llm, OpenAILLMClient)
-    assert reasoning_llm._provider == "gemini" and reasoning_llm._model == "gemini-3.6-flash"
+    assert reasoning_llm._provider == "gemini" and reasoning_llm._model == "gemini-3.1-flash-lite"
     assert type(reasoning_llm).__name__ != "FakeLLMClient"

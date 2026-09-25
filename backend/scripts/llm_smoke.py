@@ -1,7 +1,7 @@
 """Manual live check of the real LLM provider: Gemini. NOT part of the pytest suite.
 
 Sends one real reasoning request and one real final-output request through the runtime's own
-LLM client (the OpenAI SDK against Google's OpenAI-compatible endpoint, gemma-4-31b-it by default,
+LLM client (the OpenAI SDK against Google's OpenAI-compatible endpoint, gemini-3.1-flash-lite by default,
 reasoning_effort only if LLM_REASONING_EFFORT is set) with the application's own prompts and strict schemas, and reports
 whether the answers pass the same local validation the workflow uses. It uses 2 Gemini calls.
 

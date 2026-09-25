@@ -418,9 +418,9 @@ The backend reads settings from environment variables and from `.env` in the wor
 | `TEMPORAL_NAMESPACE` | `default` | Temporal namespace |
 | `LLM_PROVIDER` | `openai` when unset (the code default); the `.env.example` template sets `gemini` | `gemini` or `openai` |
 | `GEMINI_API_KEY` | none | key for `LLM_PROVIDER=gemini` |
-| `LLM_MODEL` | `gemini-3.6-flash` for Gemini; required for OpenAI | model name |
+| `LLM_MODEL` | `gemini-3.1-flash-lite` for Gemini; required for OpenAI | model name |
 | `LLM_BASE_URL` | Gemini's OpenAI-compatible endpoint for Gemini | override the provider URL |
-| `LLM_REASONING_EFFORT` | `low` for Gemini | reasoning effort passed to the provider |
+| `LLM_REASONING_EFFORT` | not sent | reasoning effort, sent to the provider only when set (some models reject it) |
 | `LLM_TIMEOUT_SECONDS` | `45` | per-request LLM timeout (kept below the 60 s reasoning Activity timeout) |
 | `LLM_API_KEY` | none | key for `LLM_PROVIDER=openai` (together with `LLM_MODEL`) |
 
@@ -435,7 +435,7 @@ Frontend (`frontend/.env.local`, optional):
 | Situation | Configuration |
 |---|---|
 | **No key** (a fresh clone) | Leave the key empty. The app, the UI, events, instructions and human controls all work, but every reasoning cycle fails cleanly: the timeline records a system entry ("Reasoning failed after retries..."), no tool runs, and a final output is produced by a deterministic **fallback** built from the recorded state. You will not see real supervisor decisions. |
-| **Gemini** (real reasoning) | `LLM_PROVIDER=gemini` and `GEMINI_API_KEY=<your key>` in `backend/.env`. The model, base URL and reasoning effort default to `gemini-3.6-flash`, Google's OpenAI-compatible endpoint and `low`. |
+| **Gemini** (real reasoning) | `LLM_PROVIDER=gemini` and `GEMINI_API_KEY=<your key>` in `backend/.env`. The model and base URL default to `gemini-3.1-flash-lite` and Google's OpenAI-compatible endpoint; reasoning effort is not sent unless `LLM_REASONING_EFFORT` is set. |
 | **OpenAI** | `LLM_PROVIDER=openai`, `LLM_API_KEY` and `LLM_MODEL` (OpenAI Responses API). Implemented and covered by offline tests only; no live OpenAI call was part of this project's validation. |
 | **FakeLLM** | **Not selectable through configuration.** It is a deterministic scripted test double injected only by the test suite and by `runtime_validation.py`. |
 
@@ -605,7 +605,7 @@ What has been verified: the backend suite (313 passing); the real Temporal runti
 
 A short path through the product using the demo order `DEMO-1001` (a real Gemini key is needed to see decisions; ended runs with a fallback final output do not count as a real-LLM demo). In this walkthrough the LLM chooses the tools; nothing is scripted, so the exact wording of decisions varies from run to run.
 
-1. **Configure Gemini.** In the git-ignored `backend/.env` set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY=...` (see [Environment configuration](#environment-configuration); the model defaults to `gemini-3.6-flash`). Never commit the key. Then start the four processes as described in [Running the application](#running-the-application) (restart the **worker** after changing `.env`) and open `http://localhost:3000`.
+1. **Configure Gemini.** In the git-ignored `backend/.env` set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY=...` (see [Environment configuration](#environment-configuration); the model defaults to `gemini-3.1-flash-lite`). Never commit the key. Then start the four processes as described in [Running the application](#running-the-application) (restart the **worker** after changing `.env`) and open `http://localhost:3000`.
 2. **Seed the mock world** with the SQL from [Setup](#setup), step 7. It creates order and shipment `DEMO-1001` (order `shipped`, shipment `in_transit`). Starting a run does not seed anything.
 3. **Create a supervisor** with all four tools enabled, `shipment_delayed` and `customer_message_received` as important events, `delivered` as a terminal status and the event to status mapping `delivered` to `delivered`.
 4. **Start a run** for order `DEMO-1001`. The first reasoning cycle (workflow start) appears on the run page; the supervisor typically calls a read tool such as `get_order_status`, which succeeds against the seeded rows, and the workflow then sleeps on a durable timer.
