@@ -22,8 +22,11 @@ MAX_DETAIL_CHARS = 300
 # NOT the Responses API (POST .../openai/responses answers 404), so provider "gemini" uses
 # chat.completions with the same strict JSON schema; everything else is shared.
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-GEMINI_MODEL = "gemini-3.6-flash"
-GEMINI_REASONING_EFFORT = "low"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
+# Not sent by default: gemma-4-31b-it answers HTTP 400 "Thinking level is not supported for this
+# model" when ``reasoning_effort`` is present. Set LLM_REASONING_EFFORT to send it to a model that
+# supports it (the previously validated gemini-3.6-flash was run with "low").
+GEMINI_REASONING_EFFORT: Optional[str] = None
 
 
 class LLMError(Exception):
@@ -59,8 +62,8 @@ class OpenAILLMClient:
     """OpenAI-SDK adapter behind the ``LLMClient`` protocol (decision B7).
 
     provider="openai" (default): the OpenAI Responses API. provider="gemini": Google's
-    OpenAI-compatible Chat Completions endpoint (``base_url``), model gemini-3.6-flash and
-    ``reasoning_effort`` by default, selected by ``LLM_PROVIDER=gemini``.
+    OpenAI-compatible Chat Completions endpoint (``base_url``), model gemma-4-31b-it by default,
+    ``reasoning_effort`` only when configured, selected by ``LLM_PROVIDER=gemini``.
 
     It returns the model's raw JSON text and translates provider failures into
     the three error types above; validation stays in ``app.llm.schemas`` and
@@ -143,6 +146,8 @@ class OpenAILLMClient:
 
         try:
             if self._provider == "gemini":
+                # Only sent when configured: some models (gemma-4-31b-it) reject the parameter.
+                extra = {"reasoning_effort": self._reasoning_effort} if self._reasoning_effort else {}
                 response = await self._sdk(openai).chat.completions.create(
                     model=self._model,
                     messages=[
@@ -153,7 +158,7 @@ class OpenAILLMClient:
                         "type": "json_schema",
                         "json_schema": {"name": schema_name, "schema": json_schema, "strict": True},
                     },
-                    reasoning_effort=self._reasoning_effort,
+                    **extra,
                 )
                 return _chat_text(response)
             response = await self._sdk(openai).responses.create(

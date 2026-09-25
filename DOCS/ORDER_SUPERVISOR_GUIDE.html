@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Order Supervisor Guide</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap">
+<style>
+:root{
+  --bg:#f5f7fa; --surface:#ffffff; --text:#152029; --muted:#586574; --line:#dbe2ea;
+  --accent:#2557d6; --accent-soft:#e6edfd; --teal:#0d8a7e; --teal-soft:#ddf3f0;
+  --amber:#a8560a; --amber-soft:#fdf0dc; --red:#b3261e; --red-soft:#fbe6e4; --code:#eef2f7;
+  --display:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0e141b; --surface:#151d27; --text:#e5ebf2; --muted:#9aa8b8; --line:#263342;
+    --accent:#7aa5ff; --accent-soft:#1c2a47; --teal:#4fd1c2; --teal-soft:#123a37;
+    --amber:#f0a94f; --amber-soft:#3a2a12; --red:#ff8a80; --red-soft:#3d1a18; --code:#1b2531;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e141b; --surface:#151d27; --text:#e5ebf2; --muted:#9aa8b8; --line:#263342;
+  --accent:#7aa5ff; --accent-soft:#1c2a47; --teal:#4fd1c2; --teal-soft:#123a37;
+  --amber:#f0a94f; --amber-soft:#3a2a12; --red:#ff8a80; --red-soft:#3d1a18; --code:#1b2531;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--body);font-size:16px;line-height:1.65;padding-inline:16px}
+.shell{max-width:1120px;margin-inline:auto;display:grid;grid-template-columns:230px minmax(0,1fr);gap:40px;padding-block:28px 80px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);align-self:start;max-height:calc(100vh - 40px);overflow:auto;font-size:14px}
+nav.toc .label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+nav.toc a{display:block;padding:5px 10px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none}
+nav.toc a:hover{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0}
+header.top{margin-bottom:36px}
+header.top h1{font-family:var(--display);font-size:clamp(2rem,5vw,3rem);line-height:1.1;margin:0 0 12px;text-wrap:balance}
+header.top p{font-size:1.1rem;color:var(--muted);max-width:60ch;margin:0}
+h2{font-family:var(--display);font-size:1.7rem;line-height:1.2;margin:56px 0 12px;text-wrap:balance;scroll-margin-top:20px}
+h3{font-size:1.1rem;margin:28px 0 8px;scroll-margin-top:20px}
+p{max-width:70ch;margin:0 0 14px}
+ul,ol{max-width:70ch;padding-left:22px;margin:0 0 16px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.88em;background:var(--code);padding:1px 6px;border-radius:4px;overflow-wrap:anywhere}
+.box{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.box b.tag{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
+.box p:last-child{margin-bottom:0}
+.plain{border-left:4px solid var(--accent);background:var(--accent-soft)}
+.plain b.tag{color:var(--accent)}
+.example{border-left:4px solid var(--teal);background:var(--teal-soft)}
+.example b.tag{color:var(--teal)}
+.watch{border-left:4px solid var(--amber);background:var(--amber-soft)}
+.watch b.tag{color:var(--amber)}
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin:18px 0;overflow-x:auto}
+.diagram pre.mermaid{margin:0;text-align:center}
+.cap{font-size:14px;color:var(--muted);margin:-8px 0 20px;max-width:70ch}
+.tw{overflow-x:auto;margin:16px 0}
+table{border-collapse:collapse;width:100%;min-width:560px;background:var(--surface);font-size:15px}
+th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+th{background:var(--code);font-weight:600}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:18px 0}
+.cols .box{margin:0}
+pre.code{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.5;margin:16px 0}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:1px 9px;border-radius:99px;border:1px solid var(--line);background:var(--surface)}
+.ok{color:var(--teal);border-color:var(--teal)} .no{color:var(--red);border-color:var(--red)}
+details.mtoc{display:none}
+@media (max-width:900px){
+  .shell{grid-template-columns:minmax(0,1fr);gap:0}
+  nav.toc{display:none}
+  details.mtoc{display:block;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:24px}
+  details.mtoc summary{cursor:pointer;font-weight:600}
+  details.mtoc a{display:block;padding:5px 0;color:var(--accent);text-decoration:none}
+}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+
+
+<div class="shell">
+<nav class="toc" aria-label="Contents">
+  <p class="label">Contents</p>
+  <a href="#what">1. What is this project?</a>
+  <a href="#pieces">2. The pieces</a>
+  <a href="#run-vs-wf">3. Run vs Workflow</a>
+  <a href="#start">4. Starting a run</a>
+  <a href="#loop">5. The workflow loop</a>
+  <a href="#wake">6. What wakes the supervisor</a>
+  <a href="#cycle">7. One reasoning cycle</a>
+  <a href="#events">8. Events</a>
+  <a href="#controls">9. Human controls</a>
+  <a href="#terminal">10. How a run ends</a>
+  <a href="#data">11. What is stored</a>
+  <a href="#safe">12. Failures and safety</a>
+  <a href="#story">13. A full story</a>
+  <a href="#ui">14. The website</a>
+  <a href="#real">15. Real vs mocked</a>
+  <a href="#code">16. Where to look in the code</a>
+  <a href="#glossary">17. Glossary</a>
+</nav>
+
+<main>
+<header class="top">
+  <h1>Order Supervisor, explained from zero</h1>
+  <p>A step-by-step guide to how the project works: the parts, the workflow, the rules, and why each choice was made. One running example throughout: order <code>A-1001</code>.</p>
+</header>
+
+<details class="mtoc"><summary>Contents</summary>
+  <a href="#what">1. What is this project?</a><a href="#pieces">2. The pieces</a><a href="#run-vs-wf">3. Run vs Workflow</a><a href="#start">4. Starting a run</a><a href="#loop">5. The workflow loop</a><a href="#wake">6. What wakes the supervisor</a><a href="#cycle">7. One reasoning cycle</a><a href="#events">8. Events</a><a href="#controls">9. Human controls</a><a href="#terminal">10. How a run ends</a><a href="#data">11. What is stored</a><a href="#safe">12. Failures and safety</a><a href="#story">13. A full story</a><a href="#ui">14. The website</a><a href="#real">15. Real vs mocked</a><a href="#code">16. Where to look in the code</a><a href="#glossary">17. Glossary</a>
+</details>
+
+<!-- ============ 1 ============ -->
+<h2 id="what">1. What is this project?</h2>
+<p>Imagine you ship an online order. Things happen to it over days: payment is confirmed, the parcel is shipped, it gets delayed, the customer writes in, it is finally delivered. Someone has to keep an eye on that order and react at the right moments.</p>
+<p><b>Order Supervisor</b> is that someone, built as software. For every order it starts one long-running <b>supervisor</b>. The supervisor sleeps most of the time, wakes up when something important happens (or when a timer fires), thinks using an AI model, and may take <b>one action</b> such as sending the customer a message. When the order reaches a final state such as <code>delivered</code>, it writes a summary and stops.</p>
+
+<div class="box plain"><b class="tag">In plain words</b>
+<p>Think of a night-shift manager who is responsible for one parcel. They nap, but a phone alert wakes them for big news. They can read a note pad (memory), ask an advisor (the AI) what to do, and then do at most one thing. You can tell them to pause, resume, or stop.</p></div>
+
+<div class="cols">
+  <div class="box"><b class="tag" style="color:var(--accent)">Long-running</b><p>One supervisor lives for the whole life of an order: hours or days, not milliseconds.</p></div>
+  <div class="box"><b class="tag" style="color:var(--accent)">Durable</b><p>If the server restarts, the supervisor picks up where it stopped. Temporal guarantees that.</p></div>
+  <div class="box"><b class="tag" style="color:var(--accent)">Careful</b><p>The AI only <em>suggests</em>. Ordinary code checks the suggestion and does the action.</p></div>
+</div>
+
+<!-- ============ 2 ============ -->
+<h2 id="pieces">2. The pieces (architecture)</h2>
+<p>There are eight parts. Each has one job.</p>
+
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+    you["You, in a browser"] --> next["Next.js website"]
+    next -->|"REST, from the server"| api["FastAPI backend"]
+    api -->|"start, Signal, Query, terminate"| temporal["Temporal"]
+    api -.->|"reads history, writes run rows"| pg[("PostgreSQL")]
+    temporal -->|"task queue"| wf["Worker: OrderWorkflow"]
+    wf -->|"runs"| act["Activities"]
+    act -->|"saves records"| pg
+    act -->|"asks for a decision"| llm["LLM"]
+    act -->|"runs a tool"| tools["Mock tools"]
+    tools -->|"read and change"| pg
+
+    classDef ui fill:#dbeafe,stroke:#2563eb,color:#111
+    classDef plain fill:#f1f5f9,stroke:#64748b,color:#111
+    classDef orch fill:#e0e7ff,stroke:#4f46e5,color:#111
+    classDef work fill:#dcfce7,stroke:#16a34a,color:#111
+    classDef data fill:#fef9c3,stroke:#ca8a04,color:#111
+    class you,next ui
+    class api plain
+    class temporal,wf orch
+    class act work
+    class pg,llm,tools data
+</pre></div>
+<p class="cap">Blue: what you see. Grey: the backend door. Indigo: Temporal and the workflow. Green: Activities (the doers). Yellow: data and outside services.</p>
+
+<div class="tw"><table>
+<tr><th>Part</th><th>Simple job</th><th>Everyday comparison</th></tr>
+<tr><td><b>Next.js</b></td><td>The website. Reads and writes go through the Next.js server, never straight from your browser to the backend.</td><td>A receptionist who takes your request and passes it on.</td></tr>
+<tr><td><b>FastAPI</b></td><td>A thin doorway. Validates requests, saves rows, and talks to Temporal. It has 18 endpoints.</td><td>The front desk clerk.</td></tr>
+<tr><td><b>Temporal</b></td><td>Keeps the supervisor alive for days: timers, messages (Signals), and its state. Survives crashes.</td><td>A very reliable alarm clock and message box.</td></tr>
+<tr><td><b>OrderWorkflow</b></td><td>The supervisor's brain-stem. Decides <em>when</em> to think and <em>what is allowed</em>. It never touches the outside world itself.</td><td>The manager's rulebook.</td></tr>
+<tr><td><b>Activities</b></td><td>All the real-world work: saving to the database, calling the AI, running tools.</td><td>The manager's hands.</td></tr>
+<tr><td><b>PostgreSQL</b></td><td>Stores records: runs, events, timeline, actions, memory, final output. It is <em>not</em> the workflow engine.</td><td>The filing cabinet.</td></tr>
+<tr><td><b>LLM</b></td><td>Returns a JSON decision. It cannot do anything by itself.</td><td>An advisor who only writes advice on paper.</td></tr>
+<tr><td><b>Tools</b></td><td>Four mock tools: <code>get_order_status</code>, <code>get_shipment_status</code>, <code>escalate_shipment</code>, <code>send_customer_update</code>.</td><td>The phone, the email, the escalation form.</td></tr>
+</table></div>
+
+<div class="box watch"><b class="tag">Watch out</b>
+<p>The workflow is <b>deterministic</b>: no clock reads, no random numbers, no network calls inside it. Temporal replays workflow code from history to recover, and that only works if the same history always produces the same steps. That is why every outside action lives in an Activity.</p></div>
+
+<!-- ============ 3 ============ -->
+<h2 id="run-vs-wf">3. Run vs Workflow: two different things</h2>
+<p>People mix these up, so it is worth being exact.</p>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+    subgraph PGS["PostgreSQL: the Run (a record)"]
+        r1["runs row<br/>id, order_id A-1001,<br/>status, order_status"]
+    end
+    subgraph TMP["Temporal: the Workflow (the live supervisor)"]
+        w1["OrderWorkflow<br/>id: order-A-1001<br/>state: sleeping, reasoning, paused, terminal"]
+    end
+    r1 <-->|"linked by order_id<br/>and run_id in the workflow input"| w1
+
+    classDef data fill:#fef9c3,stroke:#ca8a04,color:#111
+    classDef orch fill:#e0e7ff,stroke:#4f46e5,color:#111
+    class r1 data
+    class w1 orch
+</pre></div>
+<ul>
+<li>The <b>Run</b> is a database row. Its status is one of <code>starting</code>, <code>running</code>, <code>completed</code>, <code>terminated</code>, <code>failed</code>.</li>
+<li>The <b>Workflow</b> is the live supervisor inside Temporal. Its state is <code>sleeping</code>, <code>reasoning</code>, <code>paused</code> or <code>terminal</code>.</li>
+<li><b>Paused</b> exists only in the workflow. A paused run still says <code>running</code> in the database.</li>
+<li>There is exactly one workflow per order, and its id is always <code>order-{order_id}</code>, for example <code>order-A-1001</code>.</li>
+</ul>
+
+<!-- ============ 4 ============ -->
+<h2 id="start">4. Starting a run</h2>
+<p>You first create a <b>supervisor</b>: a reusable template that holds the base instructions, which tools are allowed, which events count as important, wake intervals, and which order statuses are final. Then you start a <b>run</b> for one order using that supervisor.</p>
+
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    participant U as You
+    participant N as Next.js
+    participant A as FastAPI
+    participant P as PostgreSQL
+    participant T as Temporal
+    participant W as Worker
+    U->>N: Start run for order A-1001
+    N->>A: POST /api/runs
+    A->>P: save run, status starting
+    A->>T: start_workflow, id order-A-1001
+    T-->>A: started
+    A->>P: set run status running
+    A-->>N: 201 Created
+    T->>W: run OrderWorkflow
+    W->>W: initialize state and config
+    W->>W: first reasoning pass, reason: workflow start
+</pre></div>
+
+<h3>The important rules of starting</h3>
+<ul>
+<li><b>One start path.</b> Only <code>POST /api/runs</code> ever starts a workflow, by calling <code>start_workflow</code> once.</li>
+<li><b>No Signal-With-Start.</b> Temporal has a feature that starts a workflow and sends it a message in one call. This project does <em>not</em> use it. Events and controls only go to a workflow that already exists.</li>
+<li><b>Safe initial state.</b> The workflow sets up its configuration in a special constructor (<code>@workflow.init</code>) before any message can be handled. So even a message that arrives at the very first moment sees a fully prepared workflow.</li>
+<li><b>Two systems, not one transaction.</b> PostgreSQL and Temporal cannot commit together. So the run row is saved as <code>starting</code> first, and only after Temporal accepts is it set to <code>running</code> (or <code>failed</code>).</li>
+</ul>
+
+<div class="box example"><b class="tag">Example</b>
+<p>You send an event to a run that does not exist or already finished. The API answers <code>409 RUN_NOT_ACTIVE</code>. It never quietly starts a new workflow for you.</p></div>
+
+<!-- ============ 5 ============ -->
+<h2 id="loop">5. The workflow loop</h2>
+<p>Inside the workflow there is one simple loop. It never spins fast: each pass either does one thing or waits on a durable timer.</p>
+
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+    top["Start of loop"] --> flush["Save queued records<br/>to PostgreSQL"]
+    flush --> term{"Order status<br/>is terminal?"}
+    term -->|"yes"| end1["Terminal handling<br/>see section 10"]
+    term -->|"no"| paused{"Paused?"}
+    paused -->|"yes"| pw["Wait until resume,<br/>terminal, or new records"]
+    paused -->|"no"| due{"Is a wake<br/>due?"}
+    due -->|"yes"| reason["Run one reasoning cycle"]
+    due -->|"no"| sleep["Sleep on a durable timer"]
+    pw --> top
+    reason --> top
+    sleep --> top
+
+    classDef step fill:#ffffff,stroke:#94a3b8,color:#111
+    classDef llmc fill:#dcfce7,stroke:#16a34a,color:#111
+    classDef sleepc fill:#f1f5f9,stroke:#64748b,color:#111
+    classDef pausec fill:#ede9fe,stroke:#7c3aed,color:#111
+    classDef term fill:#cffafe,stroke:#0891b2,color:#111
+    classDef dec fill:#fef3c7,stroke:#d97706,color:#111
+    class top,flush step
+    class reason llmc
+    class sleep sleepc
+    class pw pausec
+    class end1 term
+    class term,paused,due dec
+</pre></div>
+
+<p>The four states you will see in the UI:</p>
+<div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+    [*] --> Sleeping
+    Sleeping --> Reasoning: a wake trigger fires
+    Reasoning --> Sleeping: cycle done, next wake scheduled
+    Sleeping --> Paused: Pause
+    Reasoning --> Paused: Pause
+    Paused --> Reasoning: Resume
+    Sleeping --> Terminal: order reached a final status
+    Reasoning --> Terminal: order reached a final status
+    Paused --> Terminal: order reached a final status
+    Terminal --> [*]: final output saved, workflow ends
+</pre></div>
+
+<div class="box plain"><b class="tag">In plain words</b>
+<p>Messages (Signals) never do heavy work themselves. When one arrives, the workflow just writes it on a to-do list and maybe sets a "wake up" flag. The loop then saves the list to the database and decides whether to think.</p></div>
+
+<!-- ============ 6 ============ -->
+<h2 id="wake">6. What wakes the supervisor</h2>
+<p>Not every event should cost an AI call. There are exactly five things that can start a reasoning cycle.</p>
+
+<div class="tw"><table>
+<tr><th>Trigger</th><th>What happens</th><th>Wakes the AI?</th></tr>
+<tr><td><b>1. Workflow start</b></td><td>The first thing a new supervisor does is think once.</td><td><span class="pill ok">yes</span></td></tr>
+<tr><td><b>2. Important event</b></td><td>The event type is in the supervisor's important list, such as <code>shipment_delayed</code>, <code>refund_requested</code>, <code>payment_failed</code>, <code>order_cancelled</code>.</td><td><span class="pill ok">yes</span></td></tr>
+<tr><td><b>3. Scheduled timer</b></td><td>A real Temporal timer set at the end of the last cycle (for example "wake in 45 minutes").</td><td><span class="pill ok">yes</span></td></tr>
+<tr><td>Run instruction</td><td>You add a note to this run, such as "escalate if delayed".</td><td><span class="pill ok">yes</span>, not while paused</td></tr>
+<tr><td>Resume</td><td>You end a pause.</td><td><span class="pill ok">yes</span></td></tr>
+<tr><td>Unimportant event</td><td>Recorded and remembered, nothing else.</td><td><span class="pill no">no</span></td></tr>
+</table></div>
+
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+    event["Incoming event<br/>always recorded"] --> policy{"Wake policy:<br/>important?"}
+    policy -->|"no"| record["Recorded only<br/>seen at the next wake-up"]
+    policy -->|"yes"| reason["Reasoning cycle"]
+    start["1. Workflow start"] --> reason
+    timer["3. Scheduled timer"] --> reason
+    instr["Run instruction<br/>not while paused"] -.-> reason
+    resume["Resume"] -.-> reason
+
+    classDef trig fill:#dbeafe,stroke:#2563eb,color:#111
+    classDef llmc fill:#dcfce7,stroke:#16a34a,color:#111
+    classDef okc fill:#f1f5f9,stroke:#64748b,color:#111
+    classDef dec fill:#fef3c7,stroke:#d97706,color:#111
+    class event,start,timer,instr,resume trig
+    class reason llmc
+    class record okc
+    class policy dec
+</pre></div>
+
+<div class="box example"><b class="tag">Example</b>
+<p>For order <code>A-1001</code>, the events <code>order_created</code>, <code>payment_confirmed</code> and <code>shipment_created</code> arrive. None is on the important list, so all three are saved to the timeline and nothing else happens: no AI cost. Then <code>shipment_delayed</code> arrives. It is important, so the supervisor wakes and thinks. The unimportant events are handed to the AI at that moment as "new events".</p></div>
+
+<p>Two small details: while a wake is already queued, another wake does not stack on top of it. And while the supervisor is paused, events are still recorded but nothing wakes it.</p>
+
+<!-- ============ 7 ============ -->
+<h2 id="cycle">7. One reasoning cycle</h2>
+<p>When the supervisor wakes up, it runs one <b>reasoning cycle</b>. This is the heart of the project.</p>
+
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    participant W as Workflow
+    participant R as Reasoning Activity
+    participant L as LLM
+    participant X as Tool Activity
+    participant D as PostgreSQL
+    W->>R: memory, new events, instructions, allowed tools
+    R->>L: prompt asking for JSON only
+    L-->>R: decision as JSON
+    R-->>W: validated decision
+    W->>W: checkpoint: interrupted? paused? terminal?
+    W->>W: validate tool, inputs and wake time
+    W->>D: record action started
+    W->>X: run the one tool
+    X-->>W: tool result
+    W->>D: record action finished
+    W->>D: save memory snapshot
+    W->>W: schedule next wake
+</pre></div>
+
+<h3>What the AI receives and returns</h3>
+<div class="cols">
+<div class="box"><b class="tag" style="color:var(--accent)">Receives</b><p>Compact memory, new and recent events, the supervisor's instructions, this run's extra instructions, the enabled tools, and the last action result. It never sees the whole database.</p></div>
+<div class="box"><b class="tag" style="color:var(--teal)">Returns (JSON)</b><p>An assessment, an optional single tool with its input, when to wake next (in minutes), and a memory update (a summary and open concerns).</p></div>
+</div>
+
+<pre class="code">{
+  "assessment": "Shipment is delayed. Customer may worry.",
+  "tool": "send_customer_update",
+  "tool_input": { "message": "Your parcel is delayed by a day. Sorry!" },
+  "next_wake_in_minutes": 45,
+  "memory_update": {
+    "situation_summary": "Delay reported; customer informed.",
+    "open_concerns": ["confirm new delivery date"]
+  }
+}</pre>
+
+<h3>Why the workflow does not just trust the AI</h3>
+<ul>
+<li><b>Checkpoint.</b> Things may have changed while the AI was thinking. If you pressed Interrupt or Pause, or the order became final, the decision is <b>discarded</b>: no tool runs.</li>
+<li><b>Validation.</b> The tool must exist, be enabled for this supervisor, and have its required inputs. Only one tool is ever allowed. The wake time is clamped between the supervisor's minimum and maximum.</li>
+<li><b>Only Activities act.</b> Even a valid decision is carried out by a tool Activity, never by the AI.</li>
+</ul>
+
+<div class="box example"><b class="tag">Example</b>
+<p>The AI asks for <code>escalate_shipment</code>, but this supervisor only enabled <code>send_customer_update</code>. The workflow rejects it, writes "Tool request rejected" on the timeline, and still saves the memory update and schedules the next wake.</p></div>
+
+<div class="box watch"><b class="tag">"Nothing applied" means</b>
+<p>A discarded decision or a failed AI call runs no tool, saves no memory snapshot, and leaves new events waiting. The workflow only records the outcome and a note on the timeline, then schedules the next wake (or stays paused). <b>It does not end the workflow.</b></p></div>
+
+<!-- ============ 8 ============ -->
+<h2 id="events">8. Events: how news reaches the supervisor</h2>
+<p>An <b>event</b> is a fact about the order: <code>payment_confirmed</code>, <code>shipment_delayed</code>, <code>delivered</code>. In a demo, an operator or a simulator sends them.</p>
+
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    participant U as Operator
+    participant A as FastAPI
+    participant T as Temporal
+    participant W as Workflow
+    participant D as PostgreSQL
+    U->>A: POST /api/runs/id/events
+    A->>T: Signal submit_event
+    A-->>U: 202 Accepted
+    T->>W: deliver Signal
+    W->>W: queue record, update order status if mapped, maybe set wake
+    W->>D: main loop saves event and timeline entry
+</pre></div>
+
+<ul>
+<li><b>202 means "accepted by the workflow"</b>, not "already saved". The workflow saves it a moment later.</li>
+<li>Every event is saved, whether or not it wakes the AI.</li>
+<li>A supervisor can map an event to an order status. For example <code>delivered</code> maps to the status <code>delivered</code>. If that status is on the supervisor's "final" list, the run ends.</li>
+<li>If the workflow is busy thinking, new events wait in a queue and are saved when the loop reaches its next save step.</li>
+</ul>
+
+<!-- ============ 9 ============ -->
+<h2 id="controls">9. Human controls</h2>
+<p>Four buttons on the run page let a person steer the supervisor. Three are Temporal <b>Signals</b> (messages to the running workflow). One is not.</p>
+
+<div class="tw"><table>
+<tr><th>Control</th><th>How it is sent</th><th>What it does</th><th>Workflow alive?</th></tr>
+<tr><td><b>Pause</b></td><td>Signal</td><td>Stops reasoning and suspends the timer. Events are still recorded.</td><td>yes</td></tr>
+<tr><td><b>Resume</b></td><td>Signal</td><td>Ends the pause and wakes the supervisor to look at everything that piled up.</td><td>yes</td></tr>
+<tr><td><b>Interrupt</b></td><td>Signal</td><td>Abandons an in-flight AI call and clears any queued wake. A tool that is already running is <em>not</em> cancelled.</td><td>yes</td></tr>
+<tr><td><b>Terminate</b></td><td>Temporal client hard stop (not a Signal)</td><td>Kills the workflow at once. The API then records the run as <code>terminated</code>.</td><td>no</td></tr>
+</table></div>
+
+<div class="box example"><b class="tag">Example</b>
+<p>The AI is thinking about <code>A-1001</code> and is about to send the customer a message. You press <b>Pause</b>. When the AI's answer arrives, the checkpoint sees "paused" and discards it, so no message goes out. Later you press <b>Resume</b>: the supervisor wakes, sees the events that arrived during the pause, and thinks again.</p></div>
+
+<div class="box watch"><b class="tag">Why terminate is different</b>
+<p>Terminate is a hard stop that workflow code cannot intercept, so it does not clean up: no final output is produced, and unsaved queued records are lost. Use Pause or Interrupt for gentle control.</p></div>
+
+<!-- ============ 10 ============ -->
+<h2 id="terminal">10. How a run ends</h2>
+<p>A run ends when the order's status reaches one of the supervisor's configured <b>terminal statuses</b> (for example <code>delivered</code> or <code>cancelled</code>). This is decided by a simple rule on incoming events, <b>not by the AI</b>.</p>
+
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+    t["Terminal status reached<br/>not an LLM decision"] --> f1["Flush queued records"]
+    f1 --> fo["Final output<br/>LLM, or deterministic fallback"]
+    fo --> f2["Flush late records"]
+    f2 --> cr["complete_run Activity<br/>saves final output, run = completed"]
+    cr --> dr["Final drain<br/>persist any late Signals"]
+    dr --> e(["Workflow ends"])
+
+    classDef term fill:#cffafe,stroke:#0891b2,color:#111
+    classDef step fill:#ffffff,stroke:#94a3b8,color:#111
+    class t,f1,fo,f2,cr,dr term
+    class e step
+</pre></div>
+
+<ul>
+<li>Reasoning never restarts after this point. Late events, instructions and controls are still saved, but they cannot reopen the workflow.</li>
+<li>If the AI cannot write the final summary, a <b>deterministic fallback</b> builds one from what was recorded. Its output is tagged <code>source: fallback</code>, otherwise <code>source: llm</code>.</li>
+<li>If the order becomes final while the AI is mid-thought, that decision is discarded and the workflow goes straight to this path.</li>
+</ul>
+
+<!-- ============ 11 ============ -->
+<h2 id="data">11. What is stored, and where</h2>
+<div class="diagram"><pre class="mermaid">
+erDiagram
+    SUPERVISORS ||--o{ RUNS : "template for"
+    RUNS ||--o{ EVENTS : has
+    RUNS ||--o{ TIMELINE_ENTRIES : has
+    RUNS ||--o{ ACTIONS : has
+    ACTIONS ||--o{ TOOL_EXECUTIONS : has
+    RUNS ||--o{ MEMORY_SNAPSHOTS : has
+    RUNS ||--o| FINAL_OUTPUTS : ends_with
+</pre></div>
+
+<div class="tw"><table>
+<tr><th>Table</th><th>Holds</th><th>Example row</th></tr>
+<tr><td><code>supervisors</code></td><td>Reusable templates, versioned (name + version)</td><td>"Delivery watcher" v2</td></tr>
+<tr><td><code>runs</code></td><td>One row per order run; unique <code>order_id</code></td><td>A-1001, status running</td></tr>
+<tr><td><code>events</code></td><td>Every event received</td><td>shipment_delayed at 10:05</td></tr>
+<tr><td><code>timeline_entries</code></td><td>The human-readable story of the run</td><td>"Reasoning (important_event): ... [tool: send_customer_update]"</td></tr>
+<tr><td><code>actions</code>, <code>tool_executions</code></td><td>What the supervisor decided to do and what actually happened</td><td>escalate_shipment: success</td></tr>
+<tr><td><code>memory_snapshots</code></td><td>The supervisor's notes after each cycle</td><td>"Delay reported; customer informed."</td></tr>
+<tr><td><code>final_outputs</code></td><td>The end-of-run summary (one per run)</td><td>Summary, key actions, learnings, recommendations</td></tr>
+<tr><td><code>mock_orders</code>, <code>mock_shipments</code>, <code>mock_customer_messages</code></td><td>The pretend "real world" the tools act on</td><td>Shipment escalated = true</td></tr>
+</table></div>
+
+<div class="box plain"><b class="tag">In plain words</b>
+<p>Temporal holds the supervisor's <em>live</em> state (what it is doing right now). PostgreSQL holds the <em>record</em> of what happened, so the website can show history. The workflow does not read from PostgreSQL to make decisions; it keeps a compact memory of its own.</p></div>
+
+<!-- ============ 12 ============ -->
+<h2 id="safe">12. Failures and safety</h2>
+<p>Things go wrong. Here is what the design does about each.</p>
+<div class="tw"><table>
+<tr><th>What goes wrong</th><th>What the system does</th></tr>
+<tr><td>The AI is down or returns bad JSON</td><td>Temporal retries the call (up to 3 attempts). If it still fails, the cycle ends with "no tool executed", the workflow stays alive, and it tries again at the next wake.</td></tr>
+<tr><td>The AI suggests a wrong or disabled tool</td><td>The workflow rejects it and notes why on the timeline.</td></tr>
+<tr><td>A tool that only reads crashes</td><td>Retried (up to 3 attempts), because repeating a read is harmless.</td></tr>
+<tr><td>A tool with side effects crashes</td><td><b>One attempt only.</b> A retry could send the customer a second message. The failure is recorded instead.</td></tr>
+<tr><td>Saving to the database fails briefly</td><td>Retried (up to 5 attempts). Saves are idempotent: ids are made by the workflow and inserts use "do nothing if exists", so a retry never creates duplicates.</td></tr>
+<tr><td>The worker or server restarts</td><td>Temporal replays the workflow from history and it continues.</td></tr>
+<tr><td>You send an event to a finished run</td><td><code>409 RUN_NOT_ACTIVE</code>. Nothing is started.</td></tr>
+<tr><td>Temporal is unreachable</td><td>The API answers <code>503 TEMPORAL_UNAVAILABLE</code>; database-only pages still work.</td></tr>
+</table></div>
+
+<h3>Known limits (a proof-of-concept, honestly stated)</h3>
+<div class="box watch"><b class="tag">A final safety audit found no critical or high blockers. It did list three medium limits:</b>
+<ul>
+<li><b>M1.</b> A control signal that lands in the tiny gap between the checkpoint and the tool starting will not stop that one already-validated tool.</li>
+<li><b>M2.</b> If the database is down long enough to exhaust retries, the workflow fails and the run row can stay <code>running</code>. Nothing reconciles it automatically.</li>
+<li><b>M3.</b> If <code>start_workflow</code> times out in an ambiguous way, a workflow could in theory be running while the run is marked <code>failed</code>. Rare.</li>
+</ul>
+<p>Other stated limits: no Continue-As-New, the mock tables are not auto-created, and the UI re-renders the whole page every 3 seconds.</p></div>
+
+<!-- ============ 13 ============ -->
+<h2 id="story">13. A full story: order A-1001</h2>
+<p>This follows the tested "delayed shipment" scenario. The supervisor treats <code>shipment_delayed</code> and <code>customer_message_received</code> as important.</p>
+
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    participant O as Operator or simulator
+    participant S as Supervisor workflow
+    participant AI as LLM
+    participant W as Mock world
+    O->>S: Start run for A-1001
+    S->>AI: wake: workflow start
+    AI-->>S: no tool, schedule next wake
+    O->>S: order_created, payment_confirmed, shipment_created
+    Note over S: important? no. Recorded only, no AI call
+    O->>S: instruction: escalate if delayed
+    S->>AI: wake: instruction added
+    AI-->>S: noted, no tool
+    O->>S: shipment_delayed
+    S->>AI: wake: important event
+    AI-->>S: use escalate_shipment
+    S->>W: escalate shipment
+    O->>S: customer_message_received
+    S->>AI: wake: important event
+    AI-->>S: use send_customer_update
+    S->>W: store outbound message
+    Note over S: sleeps, timer fires after 45 min
+    S->>AI: wake: scheduled
+    AI-->>S: use get_shipment_status
+    O->>S: delivered
+    Note over S: final status, no more reasoning
+    S->>AI: write final summary
+    S->>S: save final output, run completed
+</pre></div>
+<p class="cap">Six events, five reasoning cycles, one final-output call.</p>
+
+<!-- ============ 14 ============ -->
+<h2 id="ui">14. The website</h2>
+<p>The UI is a Next.js app. Pages that read data are server-rendered; forms use Server Actions, so the browser never calls the backend directly and no CORS setup is needed.</p>
+
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+    home["/<br/>Dashboard: active and ended runs"] --> run["/runs/id<br/>The run page"]
+    home --> newrun["/runs/new<br/>Start a run"]
+    home --> newsup["/supervisors/new<br/>Create a supervisor"]
+    home --> sups["/supervisors<br/>Supervisors in use"]
+    newrun --> run
+
+    classDef ui fill:#dbeafe,stroke:#2563eb,color:#111
+    class home,run,newrun,newsup,sups ui
+</pre></div>
+
+<p>The run page, top to bottom:</p>
+<ol>
+<li><b>Run overview</b>: run status and live workflow state side by side.</li>
+<li><b>Workflow status</b>: from the Temporal Query (next wake, last wake reason, pending events).</li>
+<li><b>Human controls</b>: Pause, Resume, Interrupt, Terminate (terminate asks for confirmation).</li>
+<li><b>Instructions</b> and an <b>Inject an event</b> form.</li>
+<li><b>Memory, Timeline, Actions, Tool executions, Final output.</b></li>
+</ol>
+<p>While a run is active the page refreshes itself every 3 seconds. Each section loads on its own, so one failing section shows "unavailable" without breaking the rest.</p>
+
+<!-- ============ 15 ============ -->
+<h2 id="real">15. Real vs mocked</h2>
+<div class="cols">
+<div class="box"><b class="tag" style="color:var(--teal)">Real</b><p>Temporal workflow and timers, FastAPI, PostgreSQL, the Next.js UI, the Signals, the retry rules, the idempotent saves.</p></div>
+<div class="box"><b class="tag" style="color:var(--amber)">Mocked</b><p>The tools. They change mock rows in PostgreSQL, not a real courier or email system. Those mock rows come from a simulator, the tests, or a hand-seeded script.</p></div>
+</div>
+<div class="tw"><table>
+<tr><th>Claim</th><th>Status</th></tr>
+<tr><td>Real Temporal with a fake LLM</td><td><span class="pill ok">verified</span></td></tr>
+<tr><td>Real Gemini reasoning and final-output smoke test</td><td><span class="pill ok">verified</span></td></tr>
+<tr><td>Real Gemini together with Temporal, end to end</td><td><span class="pill no">not verified</span></td></tr>
+<tr><td>OpenAI live runtime</td><td><span class="pill no">not verified</span></td></tr>
+<tr><td>313 backend tests, frontend lint, TypeScript, production build, diagram rendering</td><td><span class="pill ok">passed</span></td></tr>
+</table></div>
+<p>The fake LLM is used only in tests and validation. It cannot be turned on through configuration.</p>
+
+<!-- ============ 16 ============ -->
+<h2 id="code">16. Where to look in the code</h2>
+<div class="tw"><table>
+<tr><th>You want to understand...</th><th>Open this</th></tr>
+<tr><td>The whole supervisor loop and controls</td><td><code>backend/app/temporal/workflows.py</code></td></tr>
+<tr><td>How a run is created and how controls are sent</td><td><code>backend/app/api/runs.py</code></td></tr>
+<tr><td>Live workflow status for the UI</td><td><code>backend/app/api/observation.py</code></td></tr>
+<tr><td>Which events wake the AI</td><td><code>backend/app/temporal/wake_policy.py</code></td></tr>
+<tr><td>How AI decisions are checked</td><td><code>backend/app/temporal/decision_rules.py</code></td></tr>
+<tr><td>Saving to PostgreSQL</td><td><code>backend/app/temporal/activities/persistence.py</code></td></tr>
+<tr><td>Calling the AI</td><td><code>backend/app/temporal/activities/reasoning.py</code>, <code>backend/app/llm/</code></td></tr>
+<tr><td>Running a tool</td><td><code>backend/app/temporal/activities/tools.py</code>, <code>backend/app/tools/</code></td></tr>
+<tr><td>Database tables</td><td><code>backend/app/db/models.py</code></td></tr>
+<tr><td>The website</td><td><code>frontend/src/app/</code>, <code>frontend/src/api/</code></td></tr>
+<tr><td>Final architecture and decisions</td><td><code>ARCHITECTURE_FINAL.md</code>, <code>README.md</code></td></tr>
+</table></div>
+<p>To run everything locally you need PostgreSQL, Temporal, the worker (<code>python -m app.temporal.worker</code>), the API and the frontend (<code>npm run dev</code>). The README has the exact steps.</p>
+
+<!-- ============ 17 ============ -->
+<h2 id="glossary">17. Glossary</h2>
+<div class="tw"><table>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>Workflow</td><td>Durable code that Temporal keeps alive and replays after a crash. Here: <code>OrderWorkflow</code>.</td></tr>
+<tr><td>Activity</td><td>A function that does real work (database, AI, tool). Can be retried.</td></tr>
+<tr><td>Signal</td><td>A message sent to a running workflow. Changes state, returns nothing.</td></tr>
+<tr><td>Query</td><td>A read-only question to a running workflow, such as <code>get_status</code>.</td></tr>
+<tr><td>Worker</td><td>The process that runs workflow and Activity code for Temporal.</td></tr>
+<tr><td>Task queue</td><td>The named line the worker takes work from. Here: <code>order-supervisor</code>.</td></tr>
+<tr><td>Determinism</td><td>The workflow must do the same steps every time it is replayed from history.</td></tr>
+<tr><td>Idempotent</td><td>Doing it twice has the same result as doing it once.</td></tr>
+<tr><td>Wake reason</td><td>Why the supervisor started thinking: workflow start, important event, scheduled wake-up, resume, or instruction added.</td></tr>
+<tr><td>Checkpoint</td><td>The check after the AI answers: interrupted? paused? terminal? If yes, discard the decision.</td></tr>
+<tr><td>Terminal status</td><td>A final order status (for example <code>delivered</code>) that ends the run.</td></tr>
+<tr><td>Supervisor</td><td>A reusable template: instructions, tools, important events, wake times, terminal statuses.</td></tr>
+<tr><td>Run</td><td>One supervised order: a database row plus one live workflow.</td></tr>
+<tr><td>Signal-With-Start</td><td>A Temporal feature that starts a workflow and signals it at once. <b>Not used</b> by this project.</td></tr>
+</table></div>
+
+<div class="box plain"><b class="tag">If you remember only five things</b>
+<ol>
+<li>One long-lived Temporal workflow per order, id <code>order-{order_id}</code>.</li>
+<li>The AI only returns JSON. Workflow rules check it, and Activities do the work.</li>
+<li>Five triggers wake the AI; unimportant events are recorded without waking it.</li>
+<li>At most one tool per cycle. Tools with side effects get one attempt.</li>
+<li>The run ends by a status rule, then: flush, final output, complete_run, drain, end.</li>
+</ol></div>
+</main>
+</div>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+mermaid.initialize({ startOnLoad: true, securityLevel: "strict", theme: dark ? "dark" : "default" });
+</script>
+</body>
+</html>

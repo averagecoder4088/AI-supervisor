@@ -4,7 +4,7 @@ Runs the production stack as separate processes and drives one small order lifec
 
     driver -> FastAPI (uvicorn) -> real Temporal dev server <- the PRODUCTION worker
               (`python -m app.temporal.worker`, LLM chosen by LLM_PROVIDER, NOT a FakeLLMClient)
-              -> Gemini (gemini-3.6-flash, reasoning_effort low, OpenAI-compatible endpoint)
+              -> Gemini API (gemma-4-31b-it by default, OpenAI-compatible endpoint)
 
 Scenario (about 4 LLM calls, about 3 minutes; one run is enough, quota is limited):
   start -> reasoning #1 (workflow_start) -> payment_confirmed, shipment_created (routine, no LLM)
@@ -136,7 +136,8 @@ class MockLLM:
             problems.append(f"unexpected path {path}")
         if not authorization.startswith("Bearer "):
             problems.append("missing bearer authorization")
-        if set(body) != {"model", "messages", "response_format", "reasoning_effort"}:
+        expected_keys = {"model", "messages", "response_format"} | ({"reasoning_effort"} if GEMINI_REASONING_EFFORT else set())
+        if set(body) != expected_keys:
             problems.append(f"unexpected body keys {sorted(body)}")
         if body.get("model") != GEMINI_MODEL:
             problems.append(f"model {body.get('model')!r}")
@@ -376,7 +377,7 @@ class E2E:
                 len(ok_lines) == 4 and all(expected_url in l for l in ok_lines), f"200 OK lines={len(ok_lines)} non-200={len(bad_lines)}")
         r.check("no failed LLM HTTP calls", not bad_lines, f"{len(bad_lines)}", kind="note")
         if self.mock is not None:
-            r.check("the stub saw 4 requests, all with the exact approved shape (model, low effort, strict schema)",
+            r.check("the stub saw 4 requests, all with the exact approved shape (model, strict schema, no reasoning_effort unless configured)",
                     len(self.mock.requests) == 4 and not self.mock.problems, f"requests={len(self.mock.requests)} problems={self.mock.problems}")
             r.check("stub saw reasoning x3 then final_output", [q["schema"] for q in self.mock.requests]
                     == [REASONING_SCHEMA_NAME] * 3 + [FINAL_OUTPUT_SCHEMA_NAME])

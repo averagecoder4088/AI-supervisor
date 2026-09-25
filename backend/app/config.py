@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     # client is "not configured" and every reasoning cycle fails cleanly.
     #   openai: OpenAI Responses API (decision B7), key LLM_API_KEY, model LLM_MODEL.
     #   gemini: Google's OpenAI-compatible Chat Completions endpoint through the same openai SDK,
-    #           key GEMINI_API_KEY; model, base URL and reasoning effort default to
-    #           gemini-3.6-flash / the Gemini endpoint / "low" (see app.llm.client).
+    #           key GEMINI_API_KEY; model and base URL default to gemma-4-31b-it / the Gemini
+    #           endpoint; reasoning effort is not sent unless configured (see app.llm.client).
     llm_provider: Literal["openai", "gemini"] = "openai"
     llm_api_key: Optional[SecretStr] = None
     gemini_api_key: Optional[SecretStr] = None
