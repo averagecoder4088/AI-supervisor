@@ -45,7 +45,7 @@ If you rehearse first, reset the rehearsal orders the same way and use fresh ord
 
 - `backend/.env` needs `LLM_PROVIDER=gemini` and `GEMINI_API_KEY`. Restart the worker after any change.
 - Run `python backend/scripts/llm_smoke.py`. Gemini has returned 503 and 429 (overload, quota) before. If it fails, wait and retry before recording.
-- **Model for the recording: `gemini-3.1-flash-lite`**, the code default. Leave `LLM_MODEL` and `LLM_REASONING_EFFORT` unset in `backend/.env`: the model is chosen by the default and no reasoning effort is sent. The full real end-to-end run recorded in the docs used `gemini-3.6-flash`, not this model, so a full dry run with `gemini-3.1-flash-lite` before recording is essential.
+- **Model for the recording: `gemini-3.1-flash-lite`**, the code default and the model the real end-to-end run was verified with. Leave `LLM_MODEL` and `LLM_REASONING_EFFORT` unset in `backend/.env`: the model is chosen by the default and no reasoning effort is sent. Still do one full dry run before recording.
 
 ### A3. Start the four processes, in this order
 

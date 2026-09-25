@@ -23,9 +23,9 @@ MAX_DETAIL_CHARS = 300
 # chat.completions with the same strict JSON schema; everything else is shared.
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 GEMINI_MODEL = "gemini-3.1-flash-lite"
-# Not sent by default: gemma-4-31b-it answers HTTP 400 "Thinking level is not supported for this
+# Not sent by default: some models answer HTTP 400 "Thinking level is not supported for this
 # model" when ``reasoning_effort`` is present. Set LLM_REASONING_EFFORT to send it to a model that
-# supports it (the previously validated gemini-3.6-flash was run with "low").
+# supports it.
 GEMINI_REASONING_EFFORT: Optional[str] = None
 
 
@@ -146,7 +146,7 @@ class OpenAILLMClient:
 
         try:
             if self._provider == "gemini":
-                # Only sent when configured: some models (gemma-4-31b-it) reject the parameter.
+                # Only sent when configured: some models reject the parameter.
                 extra = {"reasoning_effort": self._reasoning_effort} if self._reasoning_effort else {}
                 response = await self._sdk(openai).chat.completions.create(
                     model=self._model,

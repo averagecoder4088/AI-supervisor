@@ -347,7 +347,7 @@ The system is not production-hardened; see sections 17 and 18.
 | Statement | Status |
 |---|---|
 | **Real Gemini smoke test** | **VERIFIED** |
-| **Real Gemini + Temporal end-to-end** | **VERIFIED** (2026-09-25, `gemini_e2e.py`, real Gemini `gemini-3.6-flash`; the first attempt hit transient Gemini 503 responses and failed the script's strict clean-run check, a second attempt passed; a further real run seeded with the README SQL and given a live instruction also passed) |
+| **Real Gemini + Temporal end-to-end** | **VERIFIED** (2026-09-25, `gemini_e2e.py`, real Gemini `gemini-3.1-flash-lite`; the first attempt hit transient Gemini 503 responses and failed the script's strict clean-run check, a second attempt passed; a further real run seeded with the README SQL and given a live instruction also passed) |
 | Real Temporal runtime with FakeLLM | Verified |
 | Full pipeline against a local stub (`--mock-llm`) | Verified (not Gemini) |
 | Real OpenAI provider | **Not validated live**; the adapter is covered by offline tests only |
