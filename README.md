@@ -4,7 +4,7 @@ A proof of concept for a long-running AI supervisor that oversees **one order** 
 
 **Stack:** Next.js (App Router) + Tailwind CSS, FastAPI, Temporal Python SDK, PostgreSQL, and an LLM behind a small client interface (Gemini through its OpenAI-compatible endpoint, or OpenAI).
 
-**Documents:** [Architecture note](ARCHITECTURE.md) · [Assignment](DOCS/PROBLEM_STATEMENT.md) · [Frontend notes](frontend/README.md)
+**Documents:** [Architecture note](ARCHITECTURE.md) · [Full architecture](ARCHITECTURE_FINAL.md) · [Assignment](DOCS/PROBLEM_STATEMENT.md) · [Frontend notes](frontend/README.md)
 
 ## Contents
 
