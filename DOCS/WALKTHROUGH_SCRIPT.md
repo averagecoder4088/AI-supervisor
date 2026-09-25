@@ -1,6 +1,6 @@
 # Order Supervisor — Final Walkthrough Script
 
-This is the script for the assignment video. It runs about 10 to 11 minutes and is recorded live on the real stack: real Temporal, real worker, real Gemini (`gemini-3.1-flash-lite`) and real PostgreSQL. Two orders are used: `DEMO-2001` runs the whole lifecycle and `DEMO-2002` is terminated at the end.
+This is the script for the assignment video. It runs about 10.5 minutes and is recorded live on the real stack: real Temporal, real worker, real Gemini (`gemini-3.1-flash-lite`) and real PostgreSQL. Two orders are used: `DEMO-2001` runs the whole lifecycle and `DEMO-2002` is terminated at the end.
 
 ## How the demo is driven
 
@@ -8,6 +8,28 @@ This is the script for the assignment video. It runs about 10 to 11 minutes and 
 - **The simulator is the outside world.** `backend/scripts/simulate.py` changes the mock tables (a shipment appears, is delayed, is delivered) and then sends the matching event to the run, so the tools always read the same state the event describes.
 - **Two sources of events, on purpose.** `pay`, `ship`, `delay` and `deliver` come from the simulator because they change the world. `order_created`, `customer_message_received` and `no_update_for_n_hours` are sent from the UI's event panel.
 - **The AI is never scripted.** It decides what to do, when to sleep and which tool to call, so wording and tool choices vary from take to take.
+
+---
+
+## Timeline at a glance
+
+| # | Section | Time | Length |
+|---|---|---|---|
+| 0 | Opening | 0:00 to 0:20 | 20 s |
+| 1 | Create the Supervisor | 0:20 to 1:20 | 60 s |
+| 2 | Start the Run | 1:20 to 2:20 | 60 s |
+| 3 | Events That Do Not Wake the AI, Then a Scheduled Wake | 2:20 to 3:50 | 90 s |
+| 4 | Add an Instruction to the Live Run | 3:50 to 4:35 | 45 s |
+| 5 | An Important Event and Tool Execution: Escalation | 4:35 to 5:35 | 60 s |
+| 6 | A Customer Message: Second Tool | 5:35 to 6:20 | 45 s |
+| 7 | Inside Temporal | 6:20 to 6:50 | 30 s |
+| 8 | Human Controls: Pause, Resume, Interrupt | 6:50 to 7:50 | 60 s |
+| 9 | Finish the Order | 7:50 to 8:20 | 30 s |
+| 10 | Final Summary, Learnings and Feedback | 8:20 to 9:20 | 60 s |
+| 11 | Terminate a Second Run | 9:20 to 10:00 | 40 s |
+| 12 | Closing | 10:00 to 10:30 | 30 s |
+
+Total: about 10:30. Times are targets for a clean single take; the wait for the scheduled wake in section 3 can be cut when editing.
 
 ---
 
@@ -61,7 +83,7 @@ Wait for terminal 1 to be up before starting the API. The API connects to Tempor
 
 ---
 
-## 0. Opening — 20 seconds
+## 0. Opening — 0:00 to 0:20 (20 seconds)
 
 **Show:** the dashboard, with no active runs.
 
@@ -73,7 +95,7 @@ Wait for terminal 1 to be up before starting the API. The API connects to Tempor
 
 ---
 
-## 1. Create the Supervisor — 60 seconds
+## 1. Create the Supervisor — 0:20 to 1:20 (60 seconds)
 
 **Show:** Create supervisor, then fill in:
 
@@ -97,7 +119,7 @@ Click **Create supervisor**. You land on Start run with it selected.
 
 ---
 
-## 2. Start the Run — 60 seconds
+## 2. Start the Run — 1:20 to 2:20 (60 seconds)
 
 **Show:**
 1. In terminal 5: `python backend/scripts/simulate.py place DEMO-2001` (the customer places the order: a mock order row with status `created`, no event).
@@ -113,7 +135,7 @@ Click **Create supervisor**. You land on Start run with it selected.
 
 ---
 
-## 3. Events That Do Not Wake the AI, Then a Scheduled Wake — 90 seconds
+## 3. Events That Do Not Wake the AI, Then a Scheduled Wake — 2:20 to 3:50 (90 seconds)
 
 **Show:**
 1. In the UI's **Inject an event** panel, send `order_created` with `{"customer_id": "CUSTOMER-2001"}`.
@@ -131,7 +153,7 @@ Click **Create supervisor**. You land on Start run with it selected.
 
 ---
 
-## 4. Add an Instruction to the Live Run — 45 seconds
+## 4. Add an Instruction to the Live Run — 3:50 to 4:35 (45 seconds)
 
 **Show:** **Add an instruction for this run**, type:
 
@@ -147,7 +169,7 @@ Click **Add instruction**.
 
 ---
 
-## 5. An Important Event and Tool Execution: Escalation — 60 seconds
+## 5. An Important Event and Tool Execution: Escalation — 4:35 to 5:35 (60 seconds)
 
 **Show:** in terminal 5: `python backend/scripts/simulate.py delay DEMO-2001`. Then, once the cycle finishes: `python backend/scripts/simulate.py show DEMO-2001`.
 
@@ -159,7 +181,7 @@ Click **Add instruction**.
 
 ---
 
-## 6. A Customer Message: Second Tool — 45 seconds
+## 6. A Customer Message: Second Tool — 5:35 to 6:20 (45 seconds)
 
 **Show:** in the UI's event panel, send `customer_message_received` with `{"message": "Where is my order?"}`. Then run `python backend/scripts/simulate.py show DEMO-2001`.
 
@@ -171,7 +193,7 @@ Click **Add instruction**.
 
 ---
 
-## 7. Inside Temporal — 30 seconds
+## 7. Inside Temporal — 6:20 to 6:50 (30 seconds)
 
 **Show:** the Temporal UI, `order-DEMO-2001`, event history. Point at the Signals, the timers and the Activities.
 
@@ -181,7 +203,7 @@ Click **Add instruction**.
 
 ---
 
-## 8. Human Controls: Pause, Resume, Interrupt — 60 seconds
+## 8. Human Controls: Pause, Resume, Interrupt — 6:50 to 7:50 (60 seconds)
 
 **Show:**
 1. **Pause**. In the event panel, send `no_update_for_n_hours` with `{"hours": 24}`.
@@ -198,7 +220,7 @@ Click **Add instruction**.
 
 ---
 
-## 9. Finish the Order — 30 seconds
+## 9. Finish the Order — 7:50 to 8:20 (30 seconds)
 
 **Show:** in terminal 5: `python backend/scripts/simulate.py deliver DEMO-2001`.
 
@@ -208,7 +230,7 @@ Click **Add instruction**.
 
 ---
 
-## 10. Final Summary, Learnings and Feedback — 60 seconds
+## 10. Final Summary, Learnings and Feedback — 8:20 to 9:20 (60 seconds)
 
 **Show:** the run page after it completes. Scroll to **Final output**. Then go to the dashboard and show `DEMO-2001` under completed runs, and open it again to show the Timeline, Actions and Tool executions.
 
@@ -222,7 +244,7 @@ Click **Add instruction**.
 
 ---
 
-## 11. Terminate a Second Run — 40 seconds
+## 11. Terminate a Second Run — 9:20 to 10:00 (40 seconds)
 
 **Show:**
 1. In terminal 5: `python backend/scripts/simulate.py place DEMO-2002`.
@@ -238,7 +260,7 @@ Click **Add instruction**.
 
 ---
 
-## 12. Closing — 30 seconds
+## 12. Closing — 10:00 to 10:30 (30 seconds)
 
 **Show:** the dashboard with the completed and the terminated run.
 
