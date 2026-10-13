@@ -599,6 +599,8 @@ Not verified with real Gemini: interrupt, terminate, `send_customer_update` and 
   - The page re-renders every 3 seconds, so a half-typed form draft is lost if the backend goes down.
   - The timeline has no filtering or pagination, and only the desktop layout was reviewed.
 
+For an in-depth breakdown of architectural trade-offs, quick-win enhancements (outcome verification, browser connectors, organizational memory), and the 2-week technical roadmap, see [`DOCS/LIMITATIONS_AND_FUTURE_ROADMAP.md`](DOCS/LIMITATIONS_AND_FUTURE_ROADMAP.md).
+
 ---
 
 ## Troubleshooting
